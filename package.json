@@ -1,0 +1,27 @@
+{
+  "name": "postgres-mailing-list-summary-sender",
+  "version": "1.0.0",
+  "description": "A service to send weekly summaries of PostgreSQL mailing list discussions",
+  "private": true,
+  "workspaces": [
+    "frontend",
+    "supabase"
+  ],
+  "scripts": {
+    "dev": "concurrently \"npm run dev:frontend\" \"npm run dev:supabase\"",
+    "dev:frontend": "cd frontend && npm run dev",
+    "dev:supabase": "cd supabase && npx supabase start",
+    "build": "npm run build:frontend",
+    "build:frontend": "cd frontend && npm run build",
+    "deploy": "npm run deploy:supabase",
+    "deploy:supabase": "cd supabase && npx supabase functions deploy",
+    "db:reset": "cd supabase && npx supabase db reset",
+    "db:migrate": "cd supabase && npx supabase db push"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
