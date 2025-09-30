@@ -25,7 +25,7 @@ export function HomePage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-postgres-50 to-blue-50">
+    <div className="min-h-screen bg-gradient-to-br from-postgres-50 to-blue-50 flex flex-col">
       {/* Header */}
       <header className="bg-white shadow-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
@@ -44,7 +44,7 @@ export function HomePage() {
       </header>
 
       {/* Main Content */}
-      <main className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
+      <main className="flex-grow max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-12 w-full">
         <div className="text-center mb-12">
           <h2 className="text-4xl font-bold text-gray-900 mb-4">
             Never Miss Important PostgreSQL Hackers Discussions
@@ -86,15 +86,12 @@ export function HomePage() {
       </main>
 
       {/* Footer */}
-      <footer className="bg-white border-t border-gray-200 mt-16">
+      <footer className="bg-white border-t border-gray-200 mt-auto">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
           <div className="text-center text-gray-500 text-sm">
             <p>
               This service is not affiliated with the PostgreSQL Global Development Group.
               Summaries are generated using AI and may not capture all nuances of discussions.
-            </p>
-            <p className="mt-2">
-              © 2024 PostgreSQL Mailing List Summary. All rights reserved.
             </p>
           </div>
         </div>
