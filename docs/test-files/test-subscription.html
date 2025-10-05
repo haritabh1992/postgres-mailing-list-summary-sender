@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Subscription</title>
+    <style>
+        body { font-family: Arial, sans-serif; max-width: 600px; margin: 50px auto; padding: 20px; }
+        .form-group { margin-bottom: 20px; }
+        label { display: block; margin-bottom: 5px; font-weight: bold; }
+        input[type="email"] { width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 4px; }
+        button { background: #336791; color: white; padding: 10px 20px; border: none; border-radius: 4px; cursor: pointer; }
+        button:hover { background: #2a5a7a; }
+        .result { margin-top: 20px; padding: 15px; border-radius: 4px; }
+        .success { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+        .error { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+    </style>
+</head>
+<body>
+    <h1>Test Email Confirmation Subscription</h1>
+    
+    <form id="subscriptionForm">
+        <div class="form-group">
+            <label for="email">Email Address:</label>
+            <input type="email" id="email" name="email" required placeholder="test@example.com">
+        </div>
+        <button type="submit">Test Subscribe</button>
+    </form>
+    
+    <div id="result"></div>
+
+    <script>
+        // Replace with your actual Supabase URL and anon key
+        const SUPABASE_URL = 'YOUR_SUPABASE_URL';
+        const SUPABASE_ANON_KEY = 'YOUR_SUPABASE_ANON_KEY';
+        
+        document.getElementById('subscriptionForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const email = document.getElementById('email').value;
+            const resultDiv = document.getElementById('result');
+            
+            try {
+                // Generate confirmation token
+                const confirmationToken = crypto.randomUUID();
+                const confirmationExpiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
+                
+                // Test direct database insert
+                const response = await fetch(`${SUPABASE_URL}/rest/v1/subscribers`, {
+                    method: 'POST',
+                    headers: {
+                        'apikey': SUPABASE_ANON_KEY,
+                        'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+                        'Content-Type': 'application/json',
+                        'Prefer': 'return=minimal'
+                    },
+                    body: JSON.stringify({
+                        email: email,
+                        confirmation_token: confirmationToken,
+                        confirmation_expires_at: confirmationExpiresAt.toISOString(),
+                        confirmation_status: 'pending_confirmation',
+                        is_active: false
+                    })
+                });
+                
+                if (response.ok) {
+                    resultDiv.innerHTML = `
+                        <div class="success">
+                            ✅ <strong>Success!</strong> Subscription created successfully.<br>
+                            Email: ${email}<br>
+                            Status: pending_confirmation<br>
+                            Token: ${confirmationToken.substring(0, 8)}...
+                        </div>
+                    `;
+                } else {
+                    const errorText = await response.text();
+                    resultDiv.innerHTML = `
+                        <div class="error">
+                            ❌ <strong>Error:</strong> ${response.status} - ${errorText}
+                        </div>
+                    `;
+                }
+            } catch (error) {
+                resultDiv.innerHTML = `
+                    <div class="error">
+                        ❌ <strong>Network Error:</strong> ${error.message}
+                    </div>
+                `;
+            }
+        });
+    </script>
+</body>
+</html>

@@ -1,0 +1,12 @@
+node_modules
+.git
+.env.local
+.env.production
+supabase/.env
+*.log
+.DS_Store
+coverage
+.nyc_output
+.cache
+dist
+build
