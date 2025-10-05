@@ -13,6 +13,7 @@ interface TopDiscussion {
   participants: number
   first_post_at: string
   last_post_at: string
+  full_content?: any[]
 }
 
 interface WeeklySummary {
@@ -306,72 +307,185 @@ async function generateAISummary(discussions: TopDiscussion[], stats: any): Prom
   console.log(`🔑 INFO: OpenAI API key configured: ${openaiApiKey ? 'YES' : 'NO'}`)
   
   if (!openaiApiKey) {
-    console.log('⚠️ INFO: OpenAI API key not configured, generating mock summary')
-    const mockSummary = generateMockSummary(discussions, stats)
-    console.log(`📝 INFO: Mock summary generated (${mockSummary.length} chars)`)
-    return mockSummary
+    console.log('❌ ERROR: OpenAI API key not configured')
+    throw new Error('OpenAI API key not configured')
   }
 
   try {
-    console.log(`📝 INFO: Creating prompt for OpenAI...`)
-    const prompt = createSummaryPrompt(discussions, stats)
-    console.log(`📝 INFO: Prompt created (${prompt.length} characters):`)
-    console.log(`📝 INFO: Prompt preview:`)
-    console.log(prompt.substring(0, 500) + '...')
+    console.log(`🔄 INFO: Generating individual summaries for each discussion...`)
     
-    console.log(`🌐 INFO: Sending request to OpenAI API...`)
-    const requestBody = {
-      model: 'gpt-3.5-turbo',
-      messages: [
-        {
-          role: 'system',
-          content: `You are an expert PostgreSQL developer who creates weekly summaries 
-            of mailing list discussions. Write clear, concise summaries that highlight 
-            the most important technical discussions and decisions. In the summarization,
-            prefer using description over bullet points.`
-        },
-        {
-          role: 'user',
-          content: prompt
-        }
-      ],
-      max_tokens: 4000,
-      temperature: 0.7
+    // Generate individual summaries for each discussion
+    const individualSummaries: any[] = []
+    
+    for (let i = 0; i < discussions.length; i++) {
+      const discussion = discussions[i]
+      console.log(`📝 INFO: Processing discussion ${i + 1}/${discussions.length}: "${discussion.subject}"`)
+      
+      const discussionSummary = await generateIndividualDiscussionSummary(discussion, openaiApiKey)
+      individualSummaries.push({
+        subject: discussion.subject,
+        summary: discussionSummary,
+        post_count: discussion.post_count,
+        participants: discussion.participants,
+        first_post_at: discussion.first_post_at,
+        last_post_at: discussion.last_post_at,
+        thread_url: discussion.full_content?.[discussion.full_content.length - 1]?.thread_url
+      })
+      console.log(`✅ INFO: Summary generated for discussion ${i + 1} (${discussionSummary.length} chars)`)
     }
     
-    console.log(`📤 INFO: Request body size: ${JSON.stringify(requestBody).length} characters`)
+    console.log(`✅ INFO: Generated ${individualSummaries.length} individual summaries`)
     
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${openaiApiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(requestBody)
-    })
-
-    console.log(`📥 INFO: OpenAI response status: ${response.status} ${response.statusText}`)
-
-    if (!response.ok) {
-      const errorText = await response.text()
-      console.log(`❌ INFO: OpenAI API error response: ${errorText}`)
-      throw new Error(`OpenAI API error: ${response.statusText}`)
-    }
-
-    const data = await response.json()
-    console.log(`✅ INFO: OpenAI response received successfully`)
-    console.log(`📝 INFO: Generated content length: ${data.choices[0].message.content.length} characters`)
-    console.log(`📝 INFO: Generated content preview: ${data.choices[0].message.content.substring(0, 300)}...`)
+    // Now combine all individual summaries into a final weekly summary
+    console.log(`🔄 INFO: Combining individual summaries into final weekly summary...`)
+    const finalSummary = combineSummariesIntoWeekly(individualSummaries, stats)
     
-    return data.choices[0].message.content
+    console.log(`✅ INFO: Final weekly summary generated (${finalSummary.length} chars)`)
+    return finalSummary
+    
   } catch (error) {
-    console.log('❌ INFO: OpenAI API error:', error)
-    console.log(`🔄 INFO: Falling back to mock summary...`)
-    const mockSummary = generateMockSummary(discussions, stats)
-    console.log(`📝 INFO: Fallback mock summary generated (${mockSummary.length} chars)`)
-    return mockSummary
+    console.log('❌ ERROR: Failed to generate AI summary:', error)
+    throw error
   }
 }
+
+async function generateIndividualDiscussionSummary(discussion: any, openaiApiKey: string): Promise<string> {
+  console.log(`📝 INFO: Generating individual summary for: "${discussion.subject}"`)
+  
+  const prompt = createIndividualDiscussionPrompt(discussion)
+  console.log(`📝 INFO: Individual prompt created (${prompt.length} characters)`)
+  
+  const requestBody = {
+    model: 'gpt-3.5-turbo',
+    messages: [
+      {
+        role: 'system',
+        content: `You are an expert PostgreSQL core developer who creates detailed summaries 
+          of individual mailing list discussions. Write a comprehensive summary that includes 
+          specific technical details, exact function names, data structures, algorithms, 
+          performance metrics, and implementation approaches discussed. Focus on concrete 
+          technical decisions, code changes, and PostgreSQL internals mentioned. Avoid 
+          high-level descriptions - include specific technical information that would be 
+          valuable to PostgreSQL developers working on the codebase. Your summary should be 
+          approximately 200 words.`
+      },
+      {
+        role: 'user',
+        content: prompt
+      }
+    ],
+    max_tokens: 2000,
+    temperature: 0.7
+  }
+  
+  const response = await fetch('https://api.openai.com/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${openaiApiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(requestBody)
+  })
+
+  if (!response.ok) {
+    const errorText = await response.text()
+    console.log(`❌ INFO: OpenAI API error for individual summary: ${errorText}`)
+    throw new Error(`OpenAI API error: ${response.statusText}`)
+  }
+
+  const data = await response.json()
+  return data.choices[0].message.content
+}
+
+function combineSummariesIntoWeekly(individualSummaries: any[], stats: any): string {
+  console.log(`📝 INFO: Combining ${individualSummaries.length} individual summaries into weekly summary`)
+  
+  // Create the weekly summary header
+  const weekStart = new Date(stats.date_range?.start || new Date().toISOString().split('T')[0])
+  const weekEnd = new Date(stats.date_range?.end || new Date().toISOString().split('T')[0])
+  
+  let weeklySummary = `# PostgreSQL Weekly Summary - ${weekStart.toLocaleDateString()} to ${weekEnd.toLocaleDateString()}
+
+## Overview
+This week saw ${stats.total_posts} posts from ${stats.total_participants} participants in the PostgreSQL mailing list, covering a range of important topics and technical discussions.
+
+## Top Discussions
+
+`
+
+  // Add each individual summary as a section
+  individualSummaries.forEach((summary, index) => {
+    weeklySummary += `### ${index + 1}. ${summary.subject}
+
+- **Posts**: ${summary.post_count}
+- **Participants**: ${summary.participants}
+- **Duration**: ${new Date(summary.first_post_at).toLocaleDateString()} - ${new Date(summary.last_post_at).toLocaleDateString()}
+`
+    
+    if (summary.thread_url) {
+      weeklySummary += `- **Reference Link**: [View Thread](${summary.thread_url})
+`
+    }
+    
+    weeklySummary += `
+${summary.summary}
+
+`
+  })
+
+  console.log(`📝 INFO: Weekly summary created (${weeklySummary.length} characters)`)
+  return weeklySummary
+}
+
+function createIndividualDiscussionPrompt(discussion: any): string {
+  console.log(`📝 INFO: Creating individual discussion prompt for: "${discussion.subject}"`)
+  
+  let discussionText = `## Discussion: ${discussion.subject}\n`
+  discussionText += `- Posts: ${discussion.post_count}\n`
+  discussionText += `- Participants: ${discussion.participants}\n`
+  discussionText += `- Duration: ${new Date(discussion.first_post_at).toLocaleDateString()} - ${new Date(discussion.last_post_at).toLocaleDateString()}\n`
+  
+  // Add reference link
+  if (discussion.full_content && discussion.full_content.length > 0) {
+    const latestPost = discussion.full_content[discussion.full_content.length - 1]
+    const threadUrl = latestPost.thread_url || '#'
+    discussionText += `- Reference Link: [View Thread](${threadUrl}) by ${latestPost.author_name || 'Unknown'}\n`
+  }
+  
+  discussionText += `\n### Email Content:\n`
+  
+  // Add full email content for each post in this discussion
+  if (discussion.full_content && discussion.full_content.length > 0) {
+    discussion.full_content.forEach((post: any, postIndex: number) => {
+      discussionText += `\n**Email ${postIndex + 1}** (${new Date(post.post_date).toLocaleString()}):\n`
+      discussionText += `From: ${post.author_name || 'Unknown'}\n`
+      discussionText += `Subject: ${post.subject}\n\n`
+      discussionText += `Content: ${post.content || '[No content available]'}\n`
+      discussionText += `---\n`
+    })
+  }
+  
+  const prompt = `Analyze this PostgreSQL mailing list discussion and create a detailed summary:
+
+${discussionText}
+
+Please create a comprehensive summary that:
+1. Explains the main technical topic or problem being discussed
+2. Includes specific technical details, code changes, algorithms, or implementation approaches mentioned
+3. Mentions exact function names, data structures, performance metrics, or configuration changes discussed
+4. Highlights specific technical decisions, trade-offs, or implementation choices made
+5. Identifies any consensus reached or ongoing debates with technical reasoning
+6. Includes any specific PostgreSQL internals, APIs, or system behavior discussed
+7. Is approximately 200 words
+8. Preserves the reference link provided
+9. Is written for PostgreSQL core developers who need technical depth
+10. Do not include any links in the summary
+
+Focus on the technical substance, specific implementation details, and exact technical decisions. Avoid high-level descriptions - include concrete technical information that would be valuable to PostgreSQL developers working on the codebase.`
+
+  return prompt
+}
+
 
 function createSummaryPrompt(discussions: any[], stats: any): string {
   console.log(`📝 INFO: Creating detailed prompt with ${discussions.length} discussions and full email content`)
@@ -445,45 +559,3 @@ Format the summary with clear headings and bullet points. Focus on the technical
   return prompt
 }
 
-function generateMockSummary(discussions: any[], stats: any): string {
-  console.log(`🎭 INFO: Generating mock summary with ${discussions.length} discussions`)
-  console.log(`🎭 INFO: Mock summary stats:`, stats)
-  
-  const summary = `# PostgreSQL Weekly Summary - ${new Date().toLocaleDateString()}
-
-## Overview
-This week saw ${stats.total_posts} posts from ${stats.total_participants} participants in the PostgreSQL mailing list, covering a range of important topics and technical discussions.
-
-## Top Discussions
-
-${discussions.map((disc, index) => {
-  let discussionText = `### ${index + 1}. ${disc.subject}\n`
-  discussionText += `- **Posts**: ${disc.post_count}\n`
-  discussionText += `- **Participants**: ${disc.participants}\n`
-  discussionText += `- **Duration**: ${new Date(disc.first_post_at).toLocaleDateString()} - ${new Date(disc.last_post_at).toLocaleDateString()}\n`
-  
-  // Add reference links if available
-  if (disc.full_content && disc.full_content.length > 0) {
-    discussionText += `- **Reference Links**:\n`
-    disc.full_content.forEach((post: any, postIndex: number) => {
-      const threadUrl = post.thread_url || '#'
-      discussionText += `  - [Email ${postIndex + 1}](${threadUrl}) by ${post.author_name || 'Unknown'}\n`
-    })
-  }
-  
-  discussionText += `\nThis discussion generated significant interest with ${disc.post_count} posts from ${disc.participants} different participants, indicating a high level of community engagement and technical depth.\n\n`
-  
-  return discussionText
-}).join('')}
-
-## Key Highlights
-- Active community participation with diverse technical perspectives
-- Focus on performance improvements and core functionality
-- Continued development of new features and optimizations
-
----
-*This summary was generated automatically. Click the reference links above to read the full discussions.*`
-
-  console.log(`🎭 INFO: Mock summary completed (${summary.length} characters)`)
-  return summary
-}
