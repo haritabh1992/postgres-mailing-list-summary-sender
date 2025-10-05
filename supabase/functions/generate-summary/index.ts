@@ -417,13 +417,13 @@ This week saw ${stats.total_posts} posts from ${stats.total_participants} partic
   individualSummaries.forEach((summary, index) => {
     weeklySummary += `### ${index + 1}. ${summary.subject}
 
-- **Posts**: ${summary.post_count}
-- **Participants**: ${summary.participants}
-- **Duration**: ${new Date(summary.first_post_at).toLocaleDateString()} - ${new Date(summary.last_post_at).toLocaleDateString()}
+**Posts**: ${summary.post_count}
+**Participants**: ${summary.participants}
+**Duration**: ${new Date(summary.first_post_at).toLocaleDateString()} - ${new Date(summary.last_post_at).toLocaleDateString()}
 `
     
     if (summary.thread_url) {
-      weeklySummary += `- **Reference Link**: [View Thread](${summary.thread_url})
+      weeklySummary += `**Reference Link**: [View Thread](${summary.thread_url})
 `
     }
     

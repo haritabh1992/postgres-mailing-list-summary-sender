@@ -1,4 +1,5 @@
 import React from 'react'
+import { Link } from 'react-router-dom'
 import { Users, FileText } from 'lucide-react'
 import { useStats } from '../hooks/useStats'
 
@@ -37,7 +38,10 @@ export function StatsCounter({ onStatsLoad }: StatsCounterProps = {}) {
         
         <div className="w-px h-3 bg-gray-300"></div>
         
-        <div className="flex items-center space-x-1">
+        <Link 
+          to="/archive" 
+          className="flex items-center space-x-1 hover:text-postgres-600 transition-colors"
+        >
           <FileText className="h-3 w-3" />
           <span>
             {isLoading ? (
@@ -47,7 +51,7 @@ export function StatsCounter({ onStatsLoad }: StatsCounterProps = {}) {
             )}
           </span>
           <span>summaries</span>
-        </div>
+        </Link>
       </div>
     </div>
   )

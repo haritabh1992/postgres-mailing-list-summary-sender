@@ -28,4 +28,11 @@
   .card {
     @apply bg-white rounded-xl shadow-sm border border-gray-200 p-6;
   }
+  
+  .line-clamp-4 {
+    display: -webkit-box;
+    -webkit-line-clamp: 4;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
 }
