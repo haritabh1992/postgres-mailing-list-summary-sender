@@ -98,7 +98,6 @@ serve(async (req) => {
       mailThreads.slice(0, 5).forEach((thread, index) => {
         console.log(`  ${index + 1}. ${thread.post_date}: "${thread.subject}"`)
         console.log(`     Thread URL: ${thread.thread_url}`)
-        console.log(`     Message count: ${thread.message_count || 1}`)
       })
     }
 
@@ -107,46 +106,62 @@ serve(async (req) => {
       throw new Error(`No mail threads found for the last 7 days. Try fetching mail threads first using "Fetch Mail Threads" button.`)
     }
 
-    // Group threads by thread_id to create discussions
+    // Group threads by subject to create discussions
     const threadGroups = new Map<string, any[]>()
     mailThreads.forEach(thread => {
-      const threadId = thread.thread_id || thread.id
-      if (!threadGroups.has(threadId)) {
-        threadGroups.set(threadId, [])
+      const threadSubject = thread.subject
+      if (!threadGroups.has(threadSubject)) {
+        threadGroups.set(threadSubject, [])
       }
-      threadGroups.get(threadId)!.push(thread)
+      threadGroups.get(threadSubject)!.push(thread)
     })
 
     console.log(`🧵 INFO: Grouped posts into ${threadGroups.size} discussion threads`)
 
-    // Create top discussions with thread metadata
-    const topDiscussions = Array.from(threadGroups.entries())
-      .map(([threadId, threads]) => {
+    // Create all discussions with thread metadata
+    const allDiscussions = Array.from(threadGroups.entries())
+      .map(([threadSubject, threads]) => {
         const sortedThreads = threads.sort((a, b) => new Date(a.post_date).getTime() - new Date(b.post_date).getTime())
+        // Count unique participants (authors)
+        const uniqueAuthors = new Set(threads.map(thread => thread.author_name || thread.author_email || 'Unknown'))
+        
         return {
-          thread_id: threadId,
-          subject: sortedThreads[0].subject || 'Unknown Subject',
-          post_count: threads.reduce((sum, t) => sum + (t.message_count || 1), 0),
-          participants: threads.length, // Each thread represents a participant
+          thread_id: sortedThreads[0].thread_id || sortedThreads[0].id || threadSubject,
+          subject: threadSubject,
+          post_count: threads.length, // Count of threads as posts
+          participants: uniqueAuthors.size, // Count of unique authors/participants
           first_post_at: sortedThreads[0].post_date,
           last_post_at: sortedThreads[sortedThreads.length - 1].post_date,
           full_content: threads // Include thread metadata for AI processing
         }
       })
       .sort((a, b) => b.post_count - a.post_count) // Sort by post count
-      .slice(0, 10) // Take top 10 discussions
+
+    // Get top 5 discussions with highest thread count
+    const top5ByCount = allDiscussions.slice(0, 5)
+    
+    // Get 5 other discussions (excluding the top 5)
+    const otherDiscussions = allDiscussions.slice(5, 10)
+    
+    // Combine both sets
+    const topDiscussions = [...top5ByCount, ...otherDiscussions]
 
     console.log(`🎯 INFO: Created ${topDiscussions.length} top discussions with full content:`)
+    console.log(`  Top 5 by thread count: ${top5ByCount.length} discussions`)
+    console.log(`  Other 5 discussions: ${otherDiscussions.length} discussions`)
     topDiscussions.forEach((disc, index) => {
-      console.log(`  ${index + 1}. "${disc.subject}" (${disc.post_count} posts, ${disc.participants} participants)`)
-      const totalContentLength = disc.full_content.reduce((sum: number, thread: any) => sum + (thread.message_count || 1), 0)
-      console.log(`     Total content length: ${totalContentLength} characters`)
+      const category = index < 5 ? '[TOP 5]' : '[OTHER 5]'
+      console.log(`  ${index + 1}. ${category} "${disc.subject}" (${disc.post_count} posts, ${disc.participants} participants)`)
+      const totalContentLength = disc.full_content.length
+      console.log(`     Total content length: ${totalContentLength} threads`)
     })
 
     // Create stats from mail threads
+    const uniqueParticipants = new Set(mailThreads.map(thread => thread.author_name || thread.author_email || 'Unknown'))
+    
     const stats = {
-      total_posts: mailThreads.reduce((sum, t) => sum + (t.message_count || 1), 0),
-      total_participants: mailThreads.length, // Each thread represents a participant
+      total_posts: mailThreads.length, // Count of threads as posts
+      total_participants: uniqueParticipants.size, // Count of unique authors/participants
       total_subscribers: 0,
       date_range: {
         start: sevenDaysAgo.toISOString().split('T')[0],
@@ -310,14 +325,17 @@ async function generateAISummary(discussions: TopDiscussion[], stats: any): Prom
       messages: [
         {
           role: 'system',
-          content: 'You are an expert PostgreSQL developer who creates weekly summaries of mailing list discussions. Write clear, concise summaries that highlight the most important technical discussions and decisions.'
+          content: `You are an expert PostgreSQL developer who creates weekly summaries 
+            of mailing list discussions. Write clear, concise summaries that highlight 
+            the most important technical discussions and decisions. In the summarization,
+            prefer using description over bullet points.`
         },
         {
           role: 'user',
           content: prompt
         }
       ],
-      max_tokens: 2000,
+      max_tokens: 4000,
       temperature: 0.7
     }
     
@@ -367,12 +385,11 @@ function createSummaryPrompt(discussions: any[], stats: any): string {
     
     // Add reference links for each post in this discussion
     if (disc.full_content && disc.full_content.length > 0) {
-      discussionText += `- Reference Links:\n`
-      disc.full_content.forEach((post: any, postIndex: number) => {
-        // Use the thread_url from mail_threads table
-        const threadUrl = post.thread_url || '#'
-        discussionText += `  - [Email ${postIndex + 1}](${threadUrl}) by ${post.author_email || 'Unknown'}\n`
-      })
+      discussionText += `- Reference Link:\n`
+      // Get the latest email (last item in array)
+      const latestPost = disc.full_content[disc.full_content.length - 1]
+      const threadUrl = latestPost.thread_url || '#'
+      discussionText += `  - [View Thread](${threadUrl}) by ${latestPost.author_name || 'Unknown'}\n`
       discussionText += `\n`
     }
     
@@ -381,12 +398,12 @@ function createSummaryPrompt(discussions: any[], stats: any): string {
       discussionText += `### Email Content:\n`
       disc.full_content.forEach((post: any, postIndex: number) => {
         discussionText += `\n**Email ${postIndex + 1}** (${new Date(post.post_date).toLocaleString()}):\n`
-        discussionText += `From: ${post.author_email || 'Unknown'}\n`
+        discussionText += `From: ${post.author_name || 'Unknown'}\n`
         discussionText += `Subject: ${post.subject}\n\n`
         
         // Note: mail_threads table doesn't store content, only metadata
         // Content would need to be fetched separately if needed
-        discussionText += `Content: [Content not stored in mail_threads table - metadata only]\n`
+        discussionText += `Content: ${post.content || '[No content available]'}\n`
         discussionText += `---\n`
       })
     }
@@ -419,7 +436,7 @@ Please analyze the full email content above and create a comprehensive summary t
 
 Format the summary with clear headings and bullet points. Focus on the technical substance of the discussions rather than just listing topics. Make sure to preserve the reference links in the output.`
 
-  console.log(`📝 INFO: Final detailed prompt created (${prompt.length} characters)`)
+  console.log(`📝 INFO: Final detailed prompt created (${prompt})`)
   console.log(`📝 INFO: Sending this COMPLETE prompt to AI:`)
   console.log(`=== FULL PROMPT START ===`)
   console.log(prompt)
@@ -450,7 +467,7 @@ ${discussions.map((disc, index) => {
     discussionText += `- **Reference Links**:\n`
     disc.full_content.forEach((post: any, postIndex: number) => {
       const threadUrl = post.thread_url || '#'
-      discussionText += `  - [Email ${postIndex + 1}](${threadUrl}) by ${post.author_email || 'Unknown'}\n`
+      discussionText += `  - [Email ${postIndex + 1}](${threadUrl}) by ${post.author_name || 'Unknown'}\n`
     })
   }
   

@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+import he from 'https://esm.sh/he@1.2.0'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -85,7 +86,8 @@ serve(async (req) => {
             .update({
               subject: threadContent.subject,
               thread_id: threadContent.thread_id,
-              message_count: threadContent.message_count || 1,
+              content: threadContent.content,
+              author_name: threadContent.author_email,
               is_processed: true,
               updated_at: new Date().toISOString()
             })
@@ -186,6 +188,20 @@ async function fetchThreadContent(threadUrl: string): Promise<MailThreadContent 
   }
 }
 
+function cleanEmailContent(content: string): string {
+  // Step 1: Decode HTML entities
+  let cleaned = he.decode(content)
+  
+  // Step 2: Normalize line endings and remove control characters
+  cleaned = cleaned
+    .replace(/\r\n/g, '\n')  // Convert Windows line endings
+    .replace(/\r/g, '\n')    // Convert Mac line endings
+    .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '') // Remove control chars except \n and \t
+    .trim() // Remove leading/trailing whitespace
+  
+  return cleaned
+}
+
 function parseEmailContentFromHtml(html: string, threadUrl: string): MailThreadContent | null {
   try {
     console.log(`📝 INFO: Parsing email content from HTML`)
@@ -194,97 +210,71 @@ function parseEmailContentFromHtml(html: string, threadUrl: string): MailThreadC
     const messageIdMatch = threadUrl.match(/\/list\/id\/([^\/]+)$/)
     const messageId = messageIdMatch ? messageIdMatch[1] : `extracted-${Date.now()}`
 
-    // Extract subject from title tag or h1/h2 tags
+    // Extract subject from table structure (td element after th with "Subject")
     let subject = 'Unknown Subject'
-    const titleMatch = html.match(/<title[^>]*>([^<]+)<\/title>/i)
-    if (titleMatch) {
-      subject = titleMatch[1].trim()
+    
+    // First try to find subject in table structure: <th>Subject</th> followed by <td>content</td>
+    const tableSubjectMatch = html.match(/<th[^>]*>Subject<\/th>\s*<td[^>]*>([^<]+)<\/td>/i)
+    if (tableSubjectMatch) {
+      subject = tableSubjectMatch[1].trim()
     } else {
-      const h1Match = html.match(/<h1[^>]*>([^<]+)<\/h1>/i)
-      if (h1Match) {
-        subject = h1Match[1].trim()
+      // Fallback to title tag
+      const titleMatch = html.match(/<title[^>]*>([^<]+)<\/title>/i)
+      if (titleMatch) {
+        subject = titleMatch[1].trim()
+      } else {
+        // Final fallback to h1/h2 tags
+        const h1Match = html.match(/<h1[^>]*>([^<]+)<\/h1>/i)
+        if (h1Match) {
+          subject = h1Match[1].trim()
+        }
       }
     }
 
-    // Extract author email from various possible locations
+    // Extract author from table structure (td element after th with "From")
     let authorEmail: string | null = null
-    const emailPatterns = [
-      /From:\s*([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/i,
-      /Author:\s*([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/i,
-      /([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/
-    ]
-
-    for (const pattern of emailPatterns) {
-      const match = html.match(pattern)
-      if (match) {
-        authorEmail = match[1]
-        break
+    
+    // Find author in table structure: <th>From</th> followed by <td>content</td>
+    const tableFromMatch = html.match(/<th[^>]*>From<\/th>\s*<td[^>]*>([^<]+)<\/td>/i)
+    if (tableFromMatch) {
+      const authorText = tableFromMatch[1].trim()
+      
+      // Try to extract email from the author text if it contains one
+      const emailMatch = authorText.match(/([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/)
+      if (emailMatch) {
+        authorEmail = emailMatch[1]
+      } else {
+        // If no email found, use the full author text
+        authorEmail = authorText
       }
     }
 
-    // Extract main email content
+    // Extract main email content from message-body div
     let content = ''
     
-    // Try to find the main content area
-    const contentPatterns = [
-      /<div[^>]*class="[^"]*content[^"]*"[^>]*>([\s\S]*?)<\/div>/i,
-      /<div[^>]*class="[^"]*message[^"]*"[^>]*>([\s\S]*?)<\/div>/i,
-      /<pre[^>]*>([\s\S]*?)<\/pre>/i,
-      /<body[^>]*>([\s\S]*?)<\/body>/i
-    ]
-
-    for (const pattern of contentPatterns) {
-      const match = html.match(pattern)
-      if (match) {
-        content = match[1]
-        break
-      }
-    }
-
-    // Clean up content
-    content = content
-      .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '') // Remove scripts
-      .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')   // Remove styles
-      .replace(/<[^>]+>/g, ' ')                          // Remove HTML tags
-      .replace(/\s+/g, ' ')                              // Normalize whitespace
-      .trim()
-
-    // If content is too short, try to get more from the body
-    if (content.length < 100) {
-      const bodyMatch = html.match(/<body[^>]*>([\s\S]*?)<\/body>/i)
-      if (bodyMatch) {
-        content = bodyMatch[1]
-          .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
-          .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
-          .replace(/<[^>]+>/g, ' ')
-          .replace(/\s+/g, ' ')
-          .trim()
-      }
+    // Find content in div with class "message-body" and extract text from <pre> tag
+    const messageBodyMatch = html.match(/<div[^>]*class="[^"]*message-body[^"]*"[^>]*>[\s\S]*?<pre[^>]*>([\s\S]*?)<\/pre>[\s\S]*?<\/div>/i)
+    if (messageBodyMatch) {
+      content = cleanEmailContent(messageBodyMatch[1])
     }
 
     // Extract thread ID from message ID or URL
     const threadId = messageId.split('@')[0] || `thread-${Date.now()}`
 
-    // Extract date from HTML or use current date
+    // Extract date from table structure (td element after th with "Date")
     let postedAt = new Date().toISOString()
-    const datePatterns = [
-      /Date:\s*([^<\n]+)/i,
-      /(\d{4}-\d{2}-\d{2})/,
-      /(\w+,\s*\d{1,2}\s+\w+\s+\d{4})/i
-    ]
-
-    for (const pattern of datePatterns) {
-      const match = html.match(pattern)
-      if (match) {
-        try {
-          const parsedDate = new Date(match[1])
-          if (!isNaN(parsedDate.getTime())) {
-            postedAt = parsedDate.toISOString()
-            break
-          }
-        } catch (e) {
-          // Continue to next pattern
+    
+    // Find date in table structure: <th>Date</th> followed by <td>content</td>
+    const tableDateMatch = html.match(/<th[^>]*>Date<\/th>\s*<td[^>]*>([^<]+)<\/td>/i)
+    if (tableDateMatch) {
+      const dateText = tableDateMatch[1].trim()
+      try {
+        const parsedDate = new Date(dateText)
+        if (!isNaN(parsedDate.getTime())) {
+          postedAt = parsedDate.toISOString()
         }
+      } catch (e) {
+        // Keep default date if parsing fails
       }
     }
 
@@ -301,7 +291,7 @@ function parseEmailContentFromHtml(html: string, threadUrl: string): MailThreadC
     console.log(`  Message ID: ${result.message_id}`)
     console.log(`  Subject: ${result.subject}`)
     console.log(`  Author: ${result.author_email || 'Unknown'}`)
-    console.log(`  Content length: ${result.content.length} characters`)
+    console.log(`  Content length: ${result.content} characters`)
     console.log(`  Posted at: ${result.posted_at}`)
 
     return result

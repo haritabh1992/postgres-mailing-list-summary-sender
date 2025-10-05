@@ -1,0 +1,4 @@
+---
+alwaysApply: true
+---
+I dont want you to auto-commit or auto-merge any change. Only do so when I explicitly as you to do so after re-confirming and then go back to the default behaviour of not auto-committing / auto-merging any change

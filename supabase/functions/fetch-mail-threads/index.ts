@@ -11,7 +11,6 @@ interface MailThread {
   subject: string
   post_date: Date
   thread_id: string
-  message_count: number
 }
 
 serve(async (req) => {
@@ -109,7 +108,6 @@ serve(async (req) => {
             subject: thread.subject,
             post_date: thread.post_date.toISOString(),
             thread_id: thread.thread_id,
-            message_count: thread.message_count,
             first_message_url: thread.url,
             last_activity: thread.post_date.toISOString(),
             updated_at: new Date().toISOString()
@@ -148,7 +146,7 @@ serve(async (req) => {
         .from('weekly_discussions')
         .update({
           total_threads: insertedCount + updatedCount,
-          total_messages: threads.reduce((sum, t) => sum + t.message_count, 0),
+          total_messages: threads.length,
           processing_status: 'completed',
           fetch_completed_at: new Date().toISOString()
         })
@@ -311,8 +309,7 @@ function parseMailThreadsFromHtml(html: string, startDate: Date, endDate: Date, 
       url: fullUrl,
       subject: link.subject,
       post_date: preciseDatetime,
-      thread_id: `${year}-${month}-${associatedDay}-${time.replace(':', '')}-${threads.length}`,
-      message_count: 1
+      thread_id: `${year}-${month}-${associatedDay}-${time.replace(':', '')}-${threads.length}`
     })
     
     console.log(`Thread on ${associatedDay}/${month} at ${time}: "${link.subject}"`)

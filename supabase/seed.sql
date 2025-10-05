@@ -8,17 +8,17 @@ INSERT INTO subscribers (email, subscribed_at, is_active) VALUES
   ('inactive@example.com', NOW() - INTERVAL '14 days', false);
 
 -- Insert some sample mail threads
-INSERT INTO mail_threads (thread_url, subject, post_date, thread_id, message_count, is_processed) VALUES
-  ('https://www.postgresql.org/message-id/msg-001', 'Re: [HACKERS] Performance improvement in VACUUM', NOW() - INTERVAL '2 days', 'thread-vacuum-001', 1, true),
-  ('https://www.postgresql.org/message-id/msg-002', 'Re: [HACKERS] Performance improvement in VACUUM', NOW() - INTERVAL '1 day', 'thread-vacuum-001', 1, true),
-  ('https://www.postgresql.org/message-id/msg-003', 'Re: [HACKERS] Performance improvement in VACUUM', NOW() - INTERVAL '12 hours', 'thread-vacuum-001', 1, true),
-  ('https://www.postgresql.org/message-id/msg-004', '[HACKERS] New JSON functions proposal', NOW() - INTERVAL '3 days', 'thread-json-001', 1, true),
-  ('https://www.postgresql.org/message-id/msg-005', 'Re: [HACKERS] New JSON functions proposal', NOW() - INTERVAL '2 days', 'thread-json-001', 1, true),
-  ('https://www.postgresql.org/message-id/msg-006', '[HACKERS] Security vulnerability in authentication', NOW() - INTERVAL '4 days', 'thread-security-001', 1, true),
-  ('https://www.postgresql.org/message-id/msg-007', 'Re: [HACKERS] Security vulnerability in authentication', NOW() - INTERVAL '3 days', 'thread-security-001', 1, true),
-  ('https://www.postgresql.org/message-id/msg-008', 'Re: [HACKERS] Security vulnerability in authentication', NOW() - INTERVAL '2 days', 'thread-security-001', 1, true),
-  ('https://www.postgresql.org/message-id/msg-009', '[HACKERS] Documentation improvements needed', NOW() - INTERVAL '5 days', 'thread-docs-001', 1, true),
-  ('https://www.postgresql.org/message-id/msg-010', 'Re: [HACKERS] Documentation improvements needed', NOW() - INTERVAL '4 days', 'thread-docs-001', 1, true);
+INSERT INTO mail_threads (thread_url, subject, post_date, thread_id, is_processed, author_name) VALUES
+  ('https://www.postgresql.org/message-id/msg-001', 'Re: [HACKERS] Performance improvement in VACUUM', NOW() - INTERVAL '2 days', 'thread-vacuum-001', true, 'Tom Lane'),
+  ('https://www.postgresql.org/message-id/msg-002', 'Re: [HACKERS] Performance improvement in VACUUM', NOW() - INTERVAL '1 day', 'thread-vacuum-001', true, 'Robert Haas'),
+  ('https://www.postgresql.org/message-id/msg-003', 'Re: [HACKERS] Performance improvement in VACUUM', NOW() - INTERVAL '12 hours', 'thread-vacuum-001', true, 'Andres Freund'),
+  ('https://www.postgresql.org/message-id/msg-004', '[HACKERS] New JSON functions proposal', NOW() - INTERVAL '3 days', 'thread-json-001', true, 'Andrew Dunstan'),
+  ('https://www.postgresql.org/message-id/msg-005', 'Re: [HACKERS] New JSON functions proposal', NOW() - INTERVAL '2 days', 'thread-json-001', true, 'Dimitri Fontaine'),
+  ('https://www.postgresql.org/message-id/msg-006', '[HACKERS] Security vulnerability in authentication', NOW() - INTERVAL '4 days', 'thread-security-001', true, 'Stephen Frost'),
+  ('https://www.postgresql.org/message-id/msg-007', 'Re: [HACKERS] Security vulnerability in authentication', NOW() - INTERVAL '3 days', 'thread-security-001', true, 'Noah Misch'),
+  ('https://www.postgresql.org/message-id/msg-008', 'Re: [HACKERS] Security vulnerability in authentication', NOW() - INTERVAL '2 days', 'thread-security-001', true, 'Michael Paquier'),
+  ('https://www.postgresql.org/message-id/msg-009', '[HACKERS] Documentation improvements needed', NOW() - INTERVAL '5 days', 'thread-docs-001', true, 'Peter Eisentraut'),
+  ('https://www.postgresql.org/message-id/msg-010', 'Re: [HACKERS] Documentation improvements needed', NOW() - INTERVAL '4 days', 'thread-docs-001', true, 'Bruce Momjian');
 
 -- Insert a sample weekly summary
 INSERT INTO weekly_summaries (week_start_date, week_end_date, summary_content, top_discussions, total_posts, total_participants) VALUES
