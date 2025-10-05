@@ -73,18 +73,21 @@ serve(async (req) => {
 
     console.log(`🔄 INFO: Will generate new summary (overwriting existing if present)...`)
 
-    // Get mailing list posts for the last 7 days (full email content)
-    const sevenDaysAgo = new Date()
-    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7)
+    // Calculate the actual week range (Monday to Sunday)
+    const actualWeekStart = getWeekStart(weekStartDate)
+    const actualWeekEnd = new Date(actualWeekStart)
+    actualWeekEnd.setDate(actualWeekEnd.getDate() + 6) // Add 6 days to get Sunday
+    actualWeekEnd.setHours(23, 59, 59, 999) // End of Sunday
 
-    console.log(`🔍 INFO: Searching for mailing list posts from last 7 days:`)
-    console.log(`  Since: ${sevenDaysAgo.toISOString()}`)
-    console.log(`  Until: ${new Date().toISOString()}`)
+    console.log(`🔍 INFO: Searching for mailing list posts for week:`)
+    console.log(`  Week Start (Monday): ${actualWeekStart.toISOString()}`)
+    console.log(`  Week End (Sunday): ${actualWeekEnd.toISOString()}`)
 
     const { data: mailThreads, error: threadsError } = await supabaseClient
       .from('mail_threads')
       .select('*')
-      .gte('post_date', sevenDaysAgo.toISOString())
+      .gte('post_date', actualWeekStart.toISOString())
+      .lte('post_date', actualWeekEnd.toISOString())
       .order('post_date', { ascending: false })
 
     if (threadsError) {
@@ -165,8 +168,8 @@ serve(async (req) => {
       total_participants: uniqueParticipants.size, // Count of unique authors/participants
       total_subscribers: 0,
       date_range: {
-        start: sevenDaysAgo.toISOString().split('T')[0],
-        end: new Date().toISOString().split('T')[0]
+        start: actualWeekStart.toISOString().split('T')[0],
+        end: actualWeekEnd.toISOString().split('T')[0]
       }
     }
 
