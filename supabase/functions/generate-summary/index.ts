@@ -188,20 +188,21 @@ serve(async (req) => {
 
     // Generate AI summary
     console.log(`🤖 INFO: Starting AI summary generation...`)
-    const summaryContent = await generateAISummary(topDiscussions, stats)
+    const actualStartDate = new Date(stats.date_range.start)
+    const actualEndDate = new Date(stats.date_range.end)
+    const summaryContent = await generateAISummary(topDiscussions, stats, actualStartDate, actualEndDate)
     console.log(`📝 INFO: Generated summary length: ${summaryContent.length} characters`)
     console.log(`📝 INFO: Summary preview: ${summaryContent.substring(0, 200)}...`)
 
     console.log(`💾 INFO: Storing weekly summary in database...`)
     // Create weekly summary (use upsert to overwrite existing)
-    const finalWeekEndDate = new Date(weekStartDate)
-    finalWeekEndDate.setDate(finalWeekEndDate.getDate() + 6)
+    // Use the actual date range from the data, not artificial week calculation
 
     const { data: summary, error: summaryError } = await supabaseClient
       .from('weekly_summaries')
       .upsert({
-        week_start_date: weekStartDate.toISOString().split('T')[0],
-        week_end_date: finalWeekEndDate.toISOString().split('T')[0],
+        week_start_date: actualStartDate.toISOString().split('T')[0],
+        week_end_date: actualEndDate.toISOString().split('T')[0],
         summary_content: summaryContent,
         top_discussions: topDiscussions,
         total_posts: stats.total_posts,
@@ -297,7 +298,7 @@ function getWeekStart(date: Date): Date {
   return weekStart
 }
 
-async function generateAISummary(discussions: TopDiscussion[], stats: any): Promise<string> {
+async function generateAISummary(discussions: TopDiscussion[], stats: any, startDate: Date, endDate: Date): Promise<string> {
   console.log(`🤖 INFO: generateAISummary called with:`)
   console.log(`  Discussions count: ${discussions.length}`)
   console.log(`  Stats:`, stats)
@@ -338,7 +339,7 @@ async function generateAISummary(discussions: TopDiscussion[], stats: any): Prom
     
     // Now combine all individual summaries into a final weekly summary
     console.log(`🔄 INFO: Combining individual summaries into final weekly summary...`)
-    const finalSummary = combineSummariesIntoWeekly(individualSummaries, stats)
+    const finalSummary = combineSummariesIntoWeekly(individualSummaries, stats, startDate, endDate)
     
     console.log(`✅ INFO: Final weekly summary generated (${finalSummary.length} chars)`)
     return finalSummary
@@ -397,14 +398,10 @@ async function generateIndividualDiscussionSummary(discussion: any, openaiApiKey
   return data.choices[0].message.content
 }
 
-function combineSummariesIntoWeekly(individualSummaries: any[], stats: any): string {
+function combineSummariesIntoWeekly(individualSummaries: any[], stats: any, weekStartDate: Date, weekEndDate: Date): string {
   console.log(`📝 INFO: Combining ${individualSummaries.length} individual summaries into weekly summary`)
   
-  // Create the weekly summary header
-  const weekStart = new Date(stats.date_range?.start || new Date().toISOString().split('T')[0])
-  const weekEnd = new Date(stats.date_range?.end || new Date().toISOString().split('T')[0])
-  
-  let weeklySummary = `# PostgreSQL Weekly Summary - ${weekStart.toLocaleDateString()} to ${weekEnd.toLocaleDateString()}
+  let weeklySummary = `# PostgreSQL Weekly Summary - ${weekStartDate.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })} to ${weekEndDate.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })}
 
 ## Overview
 This week saw ${stats.total_posts} posts from ${stats.total_participants} participants in the PostgreSQL mailing list, covering a range of important topics and technical discussions.

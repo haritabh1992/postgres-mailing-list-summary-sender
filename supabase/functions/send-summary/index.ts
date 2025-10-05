@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+import { marked } from 'https://esm.sh/marked@11.1.1'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -239,39 +240,33 @@ function createEmailContent(subscriber: Subscriber, summary: WeeklySummary): str
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>PostgreSQL Weekly Summary</title>
   <style>
-    body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px; }
-    .header { background: #336791; color: white; padding: 25px; text-align: center; border-radius: 8px 8px 0 0; }
-    .header h1 { margin: 0 0 10px 0; font-size: 24px; }
-    .header .week-info { margin: 10px 0; font-size: 16px; opacity: 0.9; }
-    .header .stats { margin-top: 15px; font-size: 14px; opacity: 0.8; }
-    .content { background: #f9f9f9; padding: 25px; border-radius: 0 0 8px 8px; }
-    .summary-content { background: white; padding: 20px; border-radius: 5px; border-left: 4px solid #336791; }
-    .summary-content h1, .summary-content h2 { color: #336791; margin-top: 25px; margin-bottom: 15px; }
-    .summary-content h3 { color: #2a5a7a; margin-top: 20px; margin-bottom: 10px; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height: 1.6; color: #2d3748; max-width: 700px; margin: 0 auto; padding: 20px; background: #f8fafc; }
+    .summary-content { background: white; padding: 30px; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+    .summary-content h1, .summary-content h2 { color: #336791; margin-top: 30px; margin-bottom: 15px; font-weight: 600; }
+    .summary-content h1:first-child { margin-top: 0; }
+    .summary-content h3 { color: #4a5568; margin-top: 25px; margin-bottom: 12px; font-weight: 600; }
+    .summary-content h4 { color: #4a5568; margin-top: 20px; margin-bottom: 10px; font-weight: 600; }
     .summary-content ul, .summary-content ol { margin: 15px 0; padding-left: 25px; }
     .summary-content li { margin: 8px 0; }
     .summary-content a { color: #336791; text-decoration: none; font-weight: 500; }
     .summary-content a:hover { text-decoration: underline; }
-    .summary-content p { margin: 12px 0; }
-    .summary-content blockquote { border-left: 3px solid #336791; padding-left: 15px; margin: 15px 0; font-style: italic; }
-    .footer { text-align: center; margin-top: 30px; font-size: 12px; color: #666; }
+    .summary-content p { margin: 15px 0; }
+    .summary-content blockquote { border-left: 4px solid #336791; padding-left: 20px; margin: 20px 0; font-style: italic; background: #f7fafc; padding: 15px 20px; border-radius: 4px; }
+    .summary-content code { background: #f1f5f9; padding: 2px 6px; border-radius: 3px; font-family: 'Monaco', 'Menlo', monospace; font-size: 0.9em; }
+    .summary-content pre { background: #1a202c; color: #e2e8f0; padding: 20px; border-radius: 6px; overflow-x: auto; margin: 20px 0; }
+    .summary-content pre code { background: none; padding: 0; color: inherit; }
+    .summary-content table { width: 100%; border-collapse: collapse; margin: 20px 0; }
+    .summary-content th, .summary-content td { border: 1px solid #e2e8f0; padding: 12px; text-align: left; }
+    .summary-content th { background: #f7fafc; font-weight: 600; color: #2d3748; }
+    .summary-content hr { border: none; border-top: 2px solid #e2e8f0; margin: 30px 0; }
+    .footer { text-align: center; margin-top: 40px; font-size: 12px; color: #718096; }
     .unsubscribe { margin-top: 20px; }
     .unsubscribe a { color: #336791; text-decoration: none; }
   </style>
 </head>
 <body>
-  <div class="header">
-    <h1>🐘 PostgreSQL Weekly Summary</h1>
-    <div class="week-info">Week of ${formatDate(summary.week_start_date)} - ${formatDate(summary.week_end_date)}</div>
-    <div class="stats">
-      📊 ${summary.total_posts} posts • ${summary.total_participants} participants
-    </div>
-  </div>
-  
-  <div class="content">
-    <div class="summary-content">
-      ${htmlSummary}
-    </div>
+  <div class="summary-content">
+    ${htmlSummary}
   </div>
 
   <div class="footer">
@@ -287,54 +282,23 @@ function createEmailContent(subscriber: Subscriber, summary: WeeklySummary): str
   `
 }
 
+// Configure marked for email-friendly output
+marked.setOptions({
+  gfm: true,          // GitHub Flavored Markdown
+  breaks: true,       // Convert line breaks to <br> tags
+  sanitize: false,    // We'll handle security ourselves
+  smartLists: true,   // Better list handling
+  smartypants: true,  // Smart quotes and typography
+})
+
 function convertMarkdownToHtml(markdown: string): string {
   if (!markdown) return ''
   
-  let html = markdown
+  // Use marked library for reliable markdown conversion
+  let html = marked(markdown) as string
   
-  // Convert headers
-  html = html.replace(/^### (.*$)/gm, '<h3>$1</h3>')
-  html = html.replace(/^## (.*$)/gm, '<h2>$1</h2>')
-  html = html.replace(/^# (.*$)/gm, '<h1>$1</h1>')
-  
-  // Convert bold text
-  html = html.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-  
-  // Convert italic text
-  html = html.replace(/\*(.*?)\*/g, '<em>$1</em>')
-  
-  // Convert links [text](url)
-  html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank">$1</a>')
-  
-  // Convert unordered lists
-  html = html.replace(/^- (.*$)/gm, '<li>$1</li>')
-  html = html.replace(/(<li>.*<\/li>)/gs, '<ul>$1</ul>')
-  
-  // Convert numbered lists
-  html = html.replace(/^\d+\. (.*$)/gm, '<li>$1</li>')
-  html = html.replace(/(<li>.*<\/li>)/gs, (match) => {
-    // Only wrap in <ol> if it's not already wrapped in <ul>
-    if (!match.includes('<ul>')) {
-      return `<ol>${match}</ol>`
-    }
-    return match
-  })
-  
-  // Convert line breaks to paragraphs
-  html = html.replace(/\n\n+/g, '</p><p>')
-  html = html.replace(/\n/g, '<br>')
-  
-  // Wrap in paragraphs if not already wrapped
-  if (!html.includes('<p>') && !html.includes('<h1>') && !html.includes('<h2>')) {
-    html = `<p>${html}</p>`
-  } else if (html.includes('</p><p>')) {
-    html = `<p>${html}</p>`
-  }
-  
-  // Clean up any double paragraph tags
-  html = html.replace(/<p><\/p>/g, '')
-  html = html.replace(/<p>\s*<p>/g, '<p>')
-  html = html.replace(/<\/p>\s*<\/p>/g, '</p>')
+  // Add target="_blank" to external links for email compatibility
+  html = html.replace(/<a href="([^"]+)"/g, '<a href="$1" target="_blank"')
   
   return html
 }
