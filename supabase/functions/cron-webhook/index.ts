@@ -498,16 +498,16 @@ serve(async (req) => {
         break
 
       case 'nightly-summary':
-        // Run nightly summary generation and email sending
-        console.log('🌙 Running nightly summary generation and email sending...')
+        // Run weekly summary generation and email sending (scheduled for Fridays 8am UTC)
+        console.log('🌙 Running weekly summary generation and email sending...')
         
-        // Start the nightly summary asynchronously
-        const nightlyPromise = (async () => {
+        // Start the weekly summary asynchronously
+        const weeklyPromise = (async () => {
           const pipeline = []
           
           try {
             // 1. Generate summary
-            console.log('🤖 Nightly: Generating AI summary...')
+            console.log('🤖 Weekly: Generating AI summary...')
             const step1 = await fetch(`${supabaseUrl}/functions/v1/generate-summary`, {
               method: 'POST',
               headers: {
@@ -527,7 +527,7 @@ serve(async (req) => {
 
             // 2. Send summary emails (only if generate succeeded)
             if (step1.ok) {
-              console.log('📤 Nightly: Sending summary emails...')
+              console.log('📤 Weekly: Sending summary emails...')
               const step2 = await fetch(`${supabaseUrl}/functions/v1/send-summary`, {
                 method: 'POST',
                 headers: {
@@ -547,22 +547,22 @@ serve(async (req) => {
             }
 
             const allSuccessful = pipeline.every(step => step.success)
-            console.log(`🎉 Nightly summary completed: ${allSuccessful ? 'SUCCESS' : 'WITH FAILURES'}`)
+            console.log(`🎉 Weekly summary completed: ${allSuccessful ? 'SUCCESS' : 'WITH FAILURES'}`)
             
             // Log the final result
-            console.log('📋 Nightly summary results:', JSON.stringify(pipeline, null, 2))
+            console.log('📋 Weekly summary results:', JSON.stringify(pipeline, null, 2))
             
           } catch (error) {
-            console.error('❌ Nightly summary execution error:', error)
+            console.error('❌ Weekly summary execution error:', error)
           }
         })()
         
-        // Return immediately without waiting for the nightly summary to complete
+        // Return immediately without waiting for the weekly summary to complete
         result = {
           success: true,
-          message: 'Nightly summary generation started successfully (running asynchronously)',
+          message: 'Weekly summary generation started successfully (running asynchronously)',
           task,
-          note: 'Nightly summary is running in the background. Check logs for detailed progress.'
+          note: 'Weekly summary is running in the background. Check logs for detailed progress.'
         }
         break
 
