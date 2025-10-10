@@ -158,7 +158,7 @@ async function sendEmailsToSubscribers(subscribers: Subscriber[], summary: Weekl
     try {
       console.log(`📧 INFO: Sending summary email to ${subscriber.email}`)
       const emailContent = createEmailContent(subscriber, summary)
-      const subject = `PostgreSQL Weekly Summary - ${formatDate(summary.week_start_date)} to ${formatDate(summary.week_end_date)}`
+      const subject = `PostgreSQL Weekly Summary - Week of ${formatDateWithOrdinal(summary.week_end_date)}`
       
       const emailSent = await sendSummaryEmail(subscriber.email, subject, emailContent)
       
@@ -309,4 +309,15 @@ function formatDate(dateString: string): string {
     month: 'short',
     day: 'numeric'
   })
+}
+
+function formatDateWithOrdinal(dateString: string): string {
+  const date = new Date(dateString)
+  const day = date.getDate()
+  const ordinal = (day: number) => {
+    const s = ["th", "st", "nd", "rd"]
+    const v = day % 100
+    return day + (s[(v - 20) % 10] || s[v] || s[0])
+  }
+  return `${ordinal(day)} ${date.toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}`
 }

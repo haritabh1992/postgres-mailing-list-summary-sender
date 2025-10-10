@@ -7,12 +7,16 @@ export function SummaryDetailPage() {
   const { id } = useParams<{ id: string }>();
   const { summary, isLoading, error } = useSummary(id || '');
 
-  const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString('en-US', {
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric',
-    });
+  const formatDateWithOrdinal = (dateString: string) => {
+    const date = new Date(dateString)
+    const day = date.getDate()
+    const ordinal = (day: number) => {
+      const s = ["th", "st", "nd", "rd"]
+      const v = day % 100
+      return day + (s[(v - 20) % 10] || s[v] || s[0])
+    }
+    const monthYear = date.toLocaleDateString('en-US', { month: 'short', year: 'numeric' })
+    return `${ordinal(day)} ${monthYear}`
   };
 
   const formatDateTime = (dateString: string) => {
@@ -68,7 +72,7 @@ export function SummaryDetailPage() {
             {/* Summary Header */}
             <div className="bg-gradient-to-r from-postgres-600 to-postgres-700 text-white p-8">
               <h2 className="text-2xl font-bold mb-2">
-                Week of {formatDate(summary.week_start_date)} - {formatDate(summary.week_end_date)}
+                Week of {formatDateWithOrdinal(summary.week_end_date)}
               </h2>
               <div className="flex flex-wrap items-center gap-6 text-postgres-100">
                 <div className="flex items-center">

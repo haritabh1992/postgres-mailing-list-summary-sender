@@ -13,8 +13,16 @@ export function ArchivePage() {
     })
   }
 
-  const formatWeekRange = (startDate: string, endDate: string) => {
-    return `${formatDate(startDate)} - ${formatDate(endDate)}`
+  const formatDateWithOrdinal = (dateString: string) => {
+    const date = new Date(dateString)
+    const day = date.getDate()
+    const ordinal = (day: number) => {
+      const s = ["th", "st", "nd", "rd"]
+      const v = day % 100
+      return day + (s[(v - 20) % 10] || s[v] || s[0])
+    }
+    const monthYear = date.toLocaleDateString('en-US', { month: 'short', year: 'numeric' })
+    return `${ordinal(day)} ${monthYear}`
   }
 
   if (error) {
@@ -105,7 +113,7 @@ export function ArchivePage() {
                 <div className="flex items-start justify-between mb-4">
                   <div>
                     <h3 className="text-xl font-semibold text-gray-900 mb-2">
-                      Week of {formatWeekRange(summary.week_start_date, summary.week_end_date)}
+                      Week of {formatDateWithOrdinal(summary.week_end_date)}
                     </h3>
                     <div className="flex items-center space-x-4 text-sm text-gray-500">
                       <div className="flex items-center space-x-1">

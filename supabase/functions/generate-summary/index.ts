@@ -74,15 +74,20 @@ serve(async (req) => {
 
     console.log(`🔄 INFO: Will generate new summary (overwriting existing if present)...`)
 
-    // Calculate the actual week range (Monday to Sunday)
-    const actualWeekStart = getWeekStart(weekStartDate)
-    const actualWeekEnd = new Date(actualWeekStart)
-    actualWeekEnd.setDate(actualWeekEnd.getDate() + 6) // Add 6 days to get Sunday
-    actualWeekEnd.setHours(23, 59, 59, 999) // End of Sunday
+    // Calculate the actual week range (Last Friday to Today)
+    const today = new Date()
+    
+    // Get last Friday first (before modifying hours)
+    const actualWeekStart = getLastFriday(today)
+    actualWeekStart.setHours(0, 0, 0, 0) // Start of Friday
+    
+    // Set end to today at end of day
+    const actualWeekEnd = new Date() // Today
+    actualWeekEnd.setHours(23, 59, 59, 999) // End of today
 
     console.log(`🔍 INFO: Searching for mailing list posts for week:`)
-    console.log(`  Week Start (Monday): ${actualWeekStart.toISOString()}`)
-    console.log(`  Week End (Sunday): ${actualWeekEnd.toISOString()}`)
+    console.log(`  Week Start (Last Friday): ${actualWeekStart.toISOString()}`)
+    console.log(`  Week End (Today): ${actualWeekEnd.toISOString()}`)
 
     const { data: mailThreads, error: threadsError } = await supabaseClient
       .from('mail_threads')
@@ -96,7 +101,7 @@ serve(async (req) => {
       throw new Error(`Failed to get mail threads: ${threadsError.message}`)
     }
 
-    console.log(`📊 INFO: Found ${mailThreads?.length || 0} mail threads for the last 7 days`)
+    console.log(`📊 INFO: Found ${mailThreads?.length || 0} mail threads for the specified date range`)
     
     if (mailThreads && mailThreads.length > 0) {
       console.log(`📧 INFO: Sample threads:`)
@@ -107,8 +112,8 @@ serve(async (req) => {
     }
 
     if (!mailThreads || mailThreads.length === 0) {
-      console.log(`❌ INFO: No mail threads found for the last 7 days`)
-      throw new Error(`No mail threads found for the last 7 days. Try fetching mail threads first using "Fetch Mail Threads" button.`)
+      console.log(`❌ INFO: No mail threads found for the specified date range`)
+      throw new Error(`No mail threads found for the specified date range (${actualWeekStart.toISOString().split('T')[0]} to ${actualWeekEnd.toISOString().split('T')[0]}). Try fetching mail threads first using "Fetch Mail Threads" button.`)
     }
 
     // Group threads by subject to create discussions
@@ -199,6 +204,11 @@ serve(async (req) => {
     console.log(`📝 INFO: Summary preview: ${summaryContent.substring(0, 200)}...`)
 
     console.log(`💾 INFO: Storing weekly summary in database...`)
+    console.log(`📅 DEBUG: actualStartDate before storage: ${actualStartDate.toISOString()}`)
+    console.log(`📅 DEBUG: actualEndDate before storage: ${actualEndDate.toISOString()}`)
+    console.log(`📅 DEBUG: week_start_date to be stored: ${actualStartDate.toISOString().split('T')[0]}`)
+    console.log(`📅 DEBUG: week_end_date to be stored: ${actualEndDate.toISOString().split('T')[0]}`)
+    
     // Create weekly summary (use upsert to overwrite existing)
     // Use the actual date range from the data, not artificial week calculation
 
@@ -300,6 +310,32 @@ function getWeekStart(date: Date): Date {
   weekStart.setDate(diff)
   weekStart.setHours(0, 0, 0, 0)
   return weekStart
+}
+
+function getLastFriday(date: Date): Date {
+  const lastFriday = new Date(date)
+  const currentDay = lastFriday.getDay() // 0 = Sunday, 1 = Monday, ..., 5 = Friday, 6 = Saturday
+  
+  console.log(`📅 DEBUG: getLastFriday called with date: ${date.toISOString()}, currentDay: ${currentDay}`)
+  
+  // Calculate days to subtract to get to LAST Friday (not today even if today is Friday)
+  let daysToSubtract = 0
+  if (currentDay === 5) {
+    // Today is Friday, go back 7 days to last Friday
+    daysToSubtract = 7
+  } else if (currentDay === 6) {
+    // Saturday -> 1 day back to yesterday's Friday
+    daysToSubtract = 1
+  } else {
+    // Sunday (0) through Thursday (4) -> go back to previous Friday
+    daysToSubtract = currentDay + 2 // Sunday: 2, Monday: 3, Tuesday: 4, Wednesday: 5, Thursday: 6
+  }
+  
+  console.log(`📅 DEBUG: daysToSubtract: ${daysToSubtract}`)
+  lastFriday.setDate(lastFriday.getDate() - daysToSubtract)
+  console.log(`📅 DEBUG: lastFriday result: ${lastFriday.toISOString()}`)
+  
+  return lastFriday
 }
 
 async function generateAISummary(discussions: TopDiscussion[], stats: any, startDate: Date, endDate: Date): Promise<string> {
@@ -405,7 +441,19 @@ async function generateIndividualDiscussionSummary(discussion: any, openaiApiKey
 function combineSummariesIntoWeekly(individualSummaries: any[], stats: any, weekStartDate: Date, weekEndDate: Date): string {
   console.log(`📝 INFO: Combining ${individualSummaries.length} individual summaries into weekly summary`)
   
-  let weeklySummary = `# PostgreSQL Weekly Summary - ${weekStartDate.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })} to ${weekEndDate.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })}
+  // Format the date with ordinal suffix (1st, 2nd, 3rd, etc.)
+  const formatDateWithOrdinal = (date: Date): string => {
+    const day = date.getDate()
+    const ordinal = (day: number) => {
+      const s = ["th", "st", "nd", "rd"]
+      const v = day % 100
+      return day + (s[(v - 20) % 10] || s[v] || s[0])
+    }
+    return `${ordinal(day)} ${date.toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}`
+  }
+  
+  // Use week end date (Sunday) from the database
+  let weeklySummary = `# PostgreSQL Weekly Summary - Week of ${formatDateWithOrdinal(weekEndDate)}
 
 ## Overview
 This week saw ${stats.total_posts} posts from ${stats.total_participants} participants in the PostgreSQL mailing list, covering a range of important topics and technical discussions.
