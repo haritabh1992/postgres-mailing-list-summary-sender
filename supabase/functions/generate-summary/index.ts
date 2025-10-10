@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+import { encode, decode } from "https://esm.sh/gpt-tokenizer@2.1.1"
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -437,6 +438,28 @@ ${summary.summary}
   return weeklySummary
 }
 
+// Helper function to count tokens accurately using gpt-tokenizer
+function countTokens(text: string): number {
+  return encode(text).length
+}
+
+// Helper function to truncate text to keep the last N tokens
+function truncateToLastTokens(text: string, maxTokens: number): string {
+  const tokens = encode(text)
+  
+  if (tokens.length <= maxTokens) {
+    console.log(`📊 INFO: Text is ${tokens.length} tokens, no truncation needed`)
+    return text
+  }
+  
+  // Keep last N tokens
+  const truncatedTokens = tokens.slice(-maxTokens)
+  const truncatedText = decode(truncatedTokens)
+  
+  console.log(`📊 INFO: Truncated text from ${tokens.length} tokens to ${maxTokens} tokens (${truncatedText.length} chars)`)
+  return truncatedText
+}
+
 function createIndividualDiscussionPrompt(discussion: any): string {
   console.log(`📝 INFO: Creating individual discussion prompt for: "${discussion.subject}"`)
   
@@ -454,16 +477,21 @@ function createIndividualDiscussionPrompt(discussion: any): string {
   
   discussionText += `\n### Email Content:\n`
   
-  // Add full email content for each post in this discussion
+  // Build email content first
+  let emailContent = ''
   if (discussion.full_content && discussion.full_content.length > 0) {
     discussion.full_content.forEach((post: any, postIndex: number) => {
-      discussionText += `\n**Email ${postIndex + 1}** (${new Date(post.post_date).toLocaleString()}):\n`
-      discussionText += `From: ${post.author_name || 'Unknown'}\n`
-      discussionText += `Subject: ${post.subject}\n\n`
-      discussionText += `Content: ${post.content || '[No content available]'}\n`
-      discussionText += `---\n`
+      emailContent += `\n**Email ${postIndex + 1}** (${new Date(post.post_date).toLocaleString()}):\n`
+      emailContent += `From: ${post.author_name || 'Unknown'}\n`
+      emailContent += `Subject: ${post.subject}\n\n`
+      emailContent += `Content: ${post.content || '[No content available]'}\n`
+      emailContent += `---\n`
     })
   }
+  
+  // Truncate email content to keep last ~12000 tokens (leaving room for system message, headers, and prompt)
+  const truncatedEmailContent = truncateToLastTokens(emailContent, 12000)
+  discussionText += truncatedEmailContent
   
   const prompt = `Analyze this PostgreSQL mailing list discussion and create a detailed summary:
 
@@ -483,6 +511,9 @@ Please create a comprehensive summary that:
 
 Focus on the technical substance, specific implementation details, and exact technical decisions. Avoid high-level descriptions - include concrete technical information that would be valuable to PostgreSQL developers working on the codebase.`
 
+  const finalTokenCount = countTokens(prompt)
+  console.log(`📊 INFO: Final prompt contains ${finalTokenCount} tokens`)
+  
   return prompt
 }
 
