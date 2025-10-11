@@ -12,6 +12,7 @@ interface Subscriber {
   email: string
   subscribed_at: string
   is_active: boolean
+  confirmation_status: string
 }
 
 interface WeeklySummary {
@@ -22,6 +23,7 @@ interface WeeklySummary {
   top_discussions: any[]
   total_posts: number
   total_participants: number
+  created_at: string
 }
 
 serve(async (req) => {
@@ -30,84 +32,226 @@ serve(async (req) => {
   }
 
   try {
+    console.log(`🚀 INFO: Send summary to users function called - Method: ${req.method}`)
+    
     // Initialize Supabase client
     const supabaseClient = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     )
 
-    // Get the week start date (default to current week)
-    const { weekStart } = await req.json().catch(() => ({ weekStart: null }))
-    const weekStartDate = weekStart ? new Date(weekStart) : getWeekStart(new Date())
+    // Get the emails from request body (support both single email and array)
+    const body = await req.json().catch(() => ({}))
+    const { email, emails } = body
     
-    // Log processing start
-    await supabaseClient
-      .from('processing_logs')
-      .insert([{
-        process_type: 'email_send',
-        status: 'in_progress',
-        message: `Sending summary for week starting ${weekStartDate.toISOString().split('T')[0]}`,
-        started_at: new Date().toISOString()
-      }])
+    // Convert to array format
+    let emailList: string[] = []
+    if (emails && Array.isArray(emails)) {
+      emailList = emails
+    } else if (email) {
+      emailList = [email]
+    } else {
+      throw new Error('Email or emails parameter is required')
+    }
 
-    // Get the weekly summary
+    if (emailList.length === 0) {
+      throw new Error('At least one email is required')
+    }
+
+    console.log(`📧 INFO: Request to send summary to ${emailList.length} user(s)`)
+
+    // Get the most recent weekly summary
     const { data: summary, error: summaryError } = await supabaseClient
       .from('weekly_summaries')
       .select('*')
-      .eq('week_start_date', weekStartDate.toISOString().split('T')[0])
+      .order('week_end_date', { ascending: false })
+      .limit(1)
       .single()
 
     if (summaryError || !summary) {
-      throw new Error(`No summary found for week starting ${weekStartDate.toISOString().split('T')[0]}`)
+      console.log(`❌ INFO: No summary found in database`)
+      throw new Error('No weekly summary found. Please generate a summary first.')
     }
 
-    // Get confirmed active subscribers
-    const { data: subscribers, error: subscribersError } = await supabaseClient
-      .from('subscribers')
-      .select('id, email, subscribed_at, is_active, confirmation_status')
-      .eq('is_active', true)
-      .eq('confirmation_status', 'confirmed')
+    console.log(`📄 INFO: Found summary for week ending: ${summary.week_end_date}`)
 
-    if (subscribersError) {
-      throw new Error(`Failed to get subscribers: ${subscribersError.message}`)
-    }
-
-    if (!subscribers || subscribers.length === 0) {
-      return new Response(
-        JSON.stringify({ 
-          success: true, 
-          message: 'No active subscribers found',
-          sent_count: 0
-        }),
-        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      )
-    }
-
-    // Send emails to all subscribers
-    const emailResults = await sendEmailsToSubscribers(subscribers, summary)
-    
-    // Log processing completion
+    // Log batch start
     await supabaseClient
       .from('processing_logs')
       .insert([{
-        process_type: 'email_send',
-        status: 'success',
-        message: `Sent ${emailResults.successful} emails, ${emailResults.failed} failed`,
+        process_type: 'email_send_batch',
+        status: 'in_progress',
+        message: `Processing ${emailList.length} email(s) with 1s delay between each`,
+        metadata: {
+          total_emails: emailList.length,
+          summary_id: summary.id,
+          week_end_date: summary.week_end_date
+        },
+        started_at: new Date().toISOString()
+      }])
+
+    // Process each email sequentially with 1 second delay
+    const results: any[] = []
+    let successful = 0
+    let failed = 0
+    let skipped = 0
+
+    for (let i = 0; i < emailList.length; i++) {
+      const currentEmail = emailList[i].trim()
+      
+      try {
+        console.log(`\n📧 INFO: Processing ${i + 1}/${emailList.length}: ${currentEmail}`)
+
+        // Verify subscriber exists and is active/confirmed
+        const { data: subscriber, error: subscriberError } = await supabaseClient
+          .from('subscribers')
+          .select('id, email, subscribed_at, is_active, confirmation_status')
+          .eq('email', currentEmail)
+          .eq('is_active', true)
+          .eq('confirmation_status', 'confirmed')
+          .single()
+
+        if (subscriberError || !subscriber) {
+          console.log(`⚠️ INFO: Subscriber not found or not eligible: ${currentEmail}`)
+          skipped++
+          results.push({
+            email: currentEmail,
+            success: false,
+            error: 'Subscriber not found, not active, or not confirmed'
+          })
+          continue
+        }
+
+        console.log(`✅ INFO: Subscriber verified: ${subscriber.email}`)
+
+        // Send email to the subscriber
+        const emailContent = createEmailContent(subscriber, summary)
+        const subject = `PostgreSQL Weekly Summary - Week of ${formatDateWithOrdinal(summary.week_end_date)}`
+        
+        const emailSent = await sendSummaryEmail(subscriber.email, subject, emailContent)
+        
+        if (!emailSent) {
+          failed++
+          results.push({
+            email: currentEmail,
+            success: false,
+            error: 'Failed to send email via Resend API'
+          })
+          
+          // Log individual failure
+          await supabaseClient
+            .from('processing_logs')
+            .insert([{
+              process_type: 'email_send_individual',
+              status: 'error',
+              message: `Failed to send email to ${currentEmail}`,
+              metadata: {
+                email: currentEmail,
+                summary_id: summary.id
+              },
+              completed_at: new Date().toISOString()
+            }])
+        } else {
+          successful++
+          results.push({
+            email: currentEmail,
+            success: true,
+            message: 'Email sent successfully'
+          })
+          
+          console.log(`✅ INFO: Email sent successfully to ${currentEmail}`)
+          
+          // Log individual success
+          await supabaseClient
+            .from('processing_logs')
+            .insert([{
+              process_type: 'email_send_individual',
+              status: 'success',
+              message: `Successfully sent summary to ${currentEmail}`,
+              metadata: {
+                email: currentEmail,
+                summary_id: summary.id,
+                week_end_date: summary.week_end_date
+              },
+              completed_at: new Date().toISOString()
+            }])
+        }
+
+        // Wait 1 second before processing next email (except for the last one)
+        if (i < emailList.length - 1) {
+          console.log(`⏳ INFO: Waiting 1 second before next email...`)
+          await new Promise(resolve => setTimeout(resolve, 1000))
+        }
+
+      } catch (error) {
+        console.error(`❌ ERROR: Error processing ${currentEmail}:`, error)
+        failed++
+        results.push({
+          email: currentEmail,
+          success: false,
+          error: error.message || 'Unexpected error'
+        })
+        
+        // Log individual error
+        await supabaseClient
+          .from('processing_logs')
+          .insert([{
+            process_type: 'email_send_individual',
+            status: 'error',
+            message: `Error sending to ${currentEmail}: ${error.message}`,
+            metadata: {
+              email: currentEmail,
+              error_detail: error.message
+            },
+            completed_at: new Date().toISOString()
+          }])
+        
+        // Continue processing other emails
+        if (i < emailList.length - 1) {
+          await new Promise(resolve => setTimeout(resolve, 1000))
+        }
+      }
+    }
+
+    // Log batch completion
+    const batchStatus = failed === 0 && skipped === 0 ? 'success' : 
+                       successful > 0 ? 'partial_success' : 'error'
+    
+    await supabaseClient
+      .from('processing_logs')
+      .insert([{
+        process_type: 'email_send_batch',
+        status: batchStatus,
+        message: `Batch completed: ${successful} sent, ${failed} failed, ${skipped} skipped`,
+        metadata: {
+          total_emails: emailList.length,
+          successful,
+          failed,
+          skipped,
+          summary_id: summary.id
+        },
         completed_at: new Date().toISOString()
       }])
 
+    console.log(`\n✅ INFO: Batch processing complete - ${successful} sent, ${failed} failed, ${skipped} skipped`)
+
     return new Response(
       JSON.stringify({ 
-        success: true, 
-        message: `Sent ${emailResults.successful} emails successfully`,
-        sent_count: emailResults.successful,
-        failed_count: emailResults.failed,
-        total_subscribers: subscribers.length
+        success: successful > 0,
+        summary: {
+          total_emails: emailList.length,
+          sent: successful,
+          failed: failed,
+          skipped: skipped,
+          summary_id: summary.id,
+          week_end_date: summary.week_end_date
+        },
+        results: results
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     )
   } catch (error) {
-    console.error('Error sending summary:', error)
+    console.error('❌ ERROR: Error in send summary to users:', error)
     
     // Log error
     try {
@@ -119,7 +263,7 @@ serve(async (req) => {
       await supabaseClient
         .from('processing_logs')
         .insert([{
-          process_type: 'email_send',
+          process_type: 'email_send_batch',
           status: 'error',
           message: error.message,
           completed_at: new Date().toISOString()
@@ -135,61 +279,15 @@ serve(async (req) => {
       }),
       { 
         headers: { ...corsHeaders, 'Content-Type': 'application/json' }, 
-        status: 500 
+        status: 400
       }
     )
   }
 })
 
-function getWeekStart(date: Date): Date {
-  const weekStart = new Date(date)
-  const day = weekStart.getDay()
-  const diff = weekStart.getDate() - day + (day === 0 ? -6 : 1) // Adjust when day is Sunday
-  weekStart.setDate(diff)
-  weekStart.setHours(0, 0, 0, 0)
-  return weekStart
-}
-
-async function sendEmailsToSubscribers(subscribers: Subscriber[], summary: WeeklySummary): Promise<{successful: number, failed: number}> {
-  let successful = 0
-  let failed = 0
-
-  for (let i = 0; i < subscribers.length; i++) {
-    const subscriber = subscribers[i]
-    
-    try {
-      console.log(`📧 INFO: Sending summary email to ${subscriber.email} (${i + 1}/${subscribers.length})`)
-      const emailContent = createEmailContent(subscriber, summary)
-      const subject = `PostgreSQL Weekly Summary - Week of ${formatDateWithOrdinal(summary.week_end_date)}`
-      
-      const emailSent = await sendSummaryEmail(subscriber.email, subject, emailContent)
-      
-      if (emailSent) {
-        successful++
-        console.log(`✅ INFO: Email sent successfully to ${subscriber.email}`)
-      } else {
-        failed++
-        console.log(`❌ INFO: Failed to send email to ${subscriber.email}`)
-      }
-    } catch (error) {
-      failed++
-      console.log(`❌ INFO: Error sending email to ${subscriber.email}:`, error)
-    }
-    
-    // Wait 1 second before processing next email (except for the last one)
-    if (i < subscribers.length - 1) {
-      console.log(`⏳ INFO: Waiting 1 second before next email...`)
-      await new Promise(resolve => setTimeout(resolve, 1000))
-    }
-  }
-
-  return { successful, failed }
-}
-
 async function sendSummaryEmail(email: string, subject: string, htmlContent: string): Promise<boolean> {
   console.log(`📤 Attempting to send email to ${email}`)
   
-  // Get Resend API key
   const resendApiKey = Deno.env.get('RESEND_API_KEY')
   
   if (!resendApiKey) {
@@ -226,11 +324,6 @@ async function sendSummaryEmail(email: string, subject: string, htmlContent: str
     console.error(`❌ Failed to send email to ${email}:`, error)
     return false
   }
-}
-
-function simulateEmailSending(count: number): {successful: number, failed: number} {
-  console.log(`Simulating sending ${count} emails`)
-  return { successful: count, failed: 0 }
 }
 
 function createEmailContent(subscriber: Subscriber, summary: WeeklySummary): string {
@@ -329,3 +422,4 @@ function formatDateWithOrdinal(dateString: string): string {
   }
   return `${ordinal(day)} ${date.toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}`
 }
+
