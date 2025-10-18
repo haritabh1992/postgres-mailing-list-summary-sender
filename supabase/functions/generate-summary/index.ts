@@ -46,14 +46,41 @@ serve(async (req) => {
     console.log(`✅ INFO: Supabase client initialized successfully`)
 
     console.log(`📅 INFO: Parsing request body...`)
-    // Get the week start date (default to current week)
-    const { weekStart } = await req.json().catch((e) => {
+    // Get the week start and end dates (support custom date ranges)
+    const { weekStart, weekEnd } = await req.json().catch((e) => {
       console.log(`⚠️ INFO: Could not parse request body, using defaults:`, e.message)
-      return { weekStart: null }
+      return { weekStart: null, weekEnd: null }
     })
-    const weekStartDate = weekStart ? new Date(weekStart) : getWeekStart(new Date())
     
-    console.log(`📅 INFO: Week start date determined: ${weekStartDate.toISOString()}`)
+    console.log(`📅 INFO: Request params - weekStart: ${weekStart}, weekEnd: ${weekEnd}`)
+    
+    // Calculate the actual week range
+    let actualWeekStart: Date
+    let actualWeekEnd: Date
+    
+    if (weekStart && weekEnd) {
+      // Custom date range provided
+      console.log(`📅 INFO: Using custom date range from request`)
+      actualWeekStart = new Date(weekStart)
+      actualWeekEnd = new Date(weekEnd)
+    } else if (weekEnd) {
+      // Only end date provided, calculate start as last Friday
+      console.log(`📅 INFO: Only end date provided, calculating start as last Friday`)
+      actualWeekEnd = new Date(weekEnd)
+      actualWeekStart = getLastFriday(actualWeekEnd)
+    } else {
+      // No custom dates, use default (last Friday to today)
+      console.log(`📅 INFO: No custom dates provided, using default (last Friday to today)`)
+      const today = new Date()
+      actualWeekStart = getLastFriday(today)
+      actualWeekEnd = new Date()
+    }
+    
+    // Normalize times
+    actualWeekStart.setHours(0, 0, 0, 0)
+    actualWeekEnd.setHours(23, 59, 59, 999)
+    
+    console.log(`📅 INFO: Final date range - Start: ${actualWeekStart.toISOString()}, End: ${actualWeekEnd.toISOString()}`)
     
     console.log(`📝 INFO: Logging processing start to database...`)
     // Log processing start
@@ -62,7 +89,7 @@ serve(async (req) => {
       .insert([{
         process_type: 'summary_generation',
         status: 'in_progress',
-        message: `Generating summary for week starting ${weekStartDate.toISOString().split('T')[0]}`,
+        message: `Generating summary for ${actualWeekStart.toISOString().split('T')[0]} to ${actualWeekEnd.toISOString().split('T')[0]}`,
         started_at: new Date().toISOString()
       }])
 
@@ -74,26 +101,21 @@ serve(async (req) => {
 
     console.log(`🔄 INFO: Will generate new summary (overwriting existing if present)...`)
 
-    // Calculate the actual week range (Last Friday to Today)
-    const today = new Date()
-    
-    // Get last Friday first (before modifying hours)
-    const actualWeekStart = getLastFriday(today)
-    actualWeekStart.setHours(0, 0, 0, 0) // Start of Friday
-    
-    // Set end to today at end of day
-    const actualWeekEnd = new Date() // Today
-    actualWeekEnd.setHours(23, 59, 59, 999) // End of today
-
     console.log(`🔍 INFO: Searching for mailing list posts for week:`)
     console.log(`  Week Start (Last Friday): ${actualWeekStart.toISOString()}`)
     console.log(`  Week End (Today): ${actualWeekEnd.toISOString()}`)
 
+    // Format dates as YYYY-MM-DD for date comparison (post_date is a DATE column)
+    const startDateStr = actualWeekStart.toISOString().split('T')[0]
+    const endDateStr = actualWeekEnd.toISOString().split('T')[0]
+    
+    console.log(`📅 INFO: Querying with date strings: ${startDateStr} to ${endDateStr}`)
+
     const { data: mailThreads, error: threadsError } = await supabaseClient
       .from('mail_threads')
       .select('*')
-      .gte('post_date', actualWeekStart.toISOString())
-      .lte('post_date', actualWeekEnd.toISOString())
+      .gte('post_date', startDateStr)
+      .lte('post_date', endDateStr)
       .order('post_date', { ascending: false })
 
     if (threadsError) {
@@ -243,7 +265,7 @@ serve(async (req) => {
       .insert([{
         process_type: 'summary_generation',
         status: 'success',
-        message: `Generated summary for week starting ${weekStartDate.toISOString().split('T')[0]}`,
+        message: `Generated summary for ${actualWeekStart.toISOString().split('T')[0]} to ${actualWeekEnd.toISOString().split('T')[0]}`,
         completed_at: new Date().toISOString()
       }])
 
@@ -255,7 +277,7 @@ serve(async (req) => {
 
     console.log(`🎉 INFO: Summary generation completed successfully!`)
     console.log(`📋 INFO: Summary ID: ${summary.id}`)
-    console.log(`📅 INFO: Week: ${weekStartDate.toISOString().split('T')[0]}`)
+    console.log(`📅 INFO: Week: ${actualWeekStart.toISOString().split('T')[0]} to ${actualWeekEnd.toISOString().split('T')[0]}`)
     console.log(`🧵 INFO: Discussions: ${topDiscussions.length}`)
 
     return new Response(
@@ -263,7 +285,8 @@ serve(async (req) => {
         success: true, 
         message: 'Summary generated successfully',
         summary_id: summary.id,
-        week_start: weekStartDate.toISOString().split('T')[0],
+        week_start: actualWeekStart.toISOString().split('T')[0],
+        week_end: actualWeekEnd.toISOString().split('T')[0],
         discussions_count: topDiscussions.length
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
