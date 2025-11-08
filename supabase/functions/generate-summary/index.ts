@@ -26,6 +26,8 @@ interface WeeklySummary {
   total_participants: number
 }
 
+const SHORT_LINK_DOMAIN = 'https://postgreshackersdigest.dev'
+
 serve(async (req) => {
   console.log(`🚀 INFO: Generate summary function called - Method: ${req.method}`)
   
@@ -386,6 +388,8 @@ async function generateAISummary(discussions: TopDiscussion[], stats: any, start
       console.log(`📝 INFO: Processing discussion ${i + 1}/${discussions.length}: "${discussion.subject}"`)
       
       const discussionSummary = await generateIndividualDiscussionSummary(discussion, openaiApiKey)
+      const { threadUrl, redirectSlug } = resolveDiscussionLinks(discussion)
+
       individualSummaries.push({
         subject: discussion.subject,
         summary: discussionSummary,
@@ -393,7 +397,8 @@ async function generateAISummary(discussions: TopDiscussion[], stats: any, start
         participants: discussion.participants,
         first_post_at: discussion.first_post_at,
         last_post_at: discussion.last_post_at,
-        thread_url: discussion.full_content?.[discussion.full_content.length - 1]?.thread_url
+        thread_url: threadUrl,
+        redirect_slug: redirectSlug
       })
       console.log(`✅ INFO: Summary generated for discussion ${i + 1} (${discussionSummary.length} chars)`)
     }
@@ -494,8 +499,12 @@ This week saw ${stats.total_posts} posts from ${stats.total_participants} partic
 **Duration**: ${new Date(summary.first_post_at).toLocaleDateString()} - ${new Date(summary.last_post_at).toLocaleDateString()}
 `
     
-    if (summary.thread_url) {
-      weeklySummary += `**Reference Link**: [View Thread](${summary.thread_url})
+    const link = summary.redirect_slug
+      ? `${SHORT_LINK_DOMAIN}/t/${summary.redirect_slug}`
+      : summary.thread_url
+
+    if (link) {
+      weeklySummary += `**Reference Link**: [View Thread](${link})
 `
     }
     
@@ -541,9 +550,8 @@ function createIndividualDiscussionPrompt(discussion: any): string {
   
   // Add reference link
   if (discussion.full_content && discussion.full_content.length > 0) {
-    const latestPost = discussion.full_content[discussion.full_content.length - 1]
-    const threadUrl = latestPost.thread_url || '#'
-    discussionText += `- Reference Link: [View Thread](${threadUrl}) by ${latestPost.author_name || 'Unknown'}\n`
+    const { threadUrl, authorName } = resolveDiscussionPromptLink(discussion)
+    discussionText += `- Reference Link: [View Thread](${threadUrl}) by ${authorName}\n`
   }
   
   discussionText += `\n### Email Content:\n`
@@ -602,10 +610,8 @@ function createSummaryPrompt(discussions: any[], stats: any): string {
     // Add reference links for each post in this discussion
     if (disc.full_content && disc.full_content.length > 0) {
       discussionText += `- Reference Link:\n`
-      // Get the latest email (last item in array)
-      const latestPost = disc.full_content[disc.full_content.length - 1]
-      const threadUrl = latestPost.thread_url || '#'
-      discussionText += `  - [View Thread](${threadUrl}) by ${latestPost.author_name || 'Unknown'}\n`
+      const { threadUrl, authorName } = resolveDiscussionPromptLink(disc)
+      discussionText += `  - [View Thread](${threadUrl}) by ${authorName}\n`
       discussionText += `\n`
     }
     
@@ -659,5 +665,48 @@ Format the summary with clear headings and bullet points. Focus on the technical
   console.log(`=== FULL PROMPT END ===`)
   
   return prompt
+}
+
+function resolveDiscussionLinks(discussion: any): { threadUrl: string | null, redirectSlug: string | null } {
+  const posts: any[] = discussion.full_content || []
+  
+  let redirectSlug: string | null = null
+  for (const post of posts) {
+    if (post?.redirect_slug) {
+      redirectSlug = post.redirect_slug
+      break
+    }
+  }
+
+  let threadUrl: string | null = null
+  if (redirectSlug) {
+    threadUrl = `${SHORT_LINK_DOMAIN}/t/${redirectSlug}`
+  } else {
+    for (let i = posts.length - 1; i >= 0; i--) {
+      if (posts[i]?.thread_url) {
+        threadUrl = posts[i].thread_url
+        break
+      }
+    }
+  }
+
+  return {
+    threadUrl,
+    redirectSlug
+  }
+}
+
+function resolveDiscussionPromptLink(discussion: any): { threadUrl: string, authorName: string } {
+  const posts: any[] = discussion.full_content || []
+  const latestPost = posts[posts.length - 1] || {}
+
+  const { threadUrl } = resolveDiscussionLinks(discussion)
+  const resolvedUrl = threadUrl || latestPost.thread_url || '#'
+  const authorName = latestPost.author_name || 'Unknown'
+
+  return {
+    threadUrl: resolvedUrl,
+    authorName
+  }
 }
 

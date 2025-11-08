@@ -113,7 +113,8 @@ serve(async (req) => {
             updated_at: new Date().toISOString()
           }, {
             onConflict: 'thread_url',
-            ignoreDuplicates: false
+            ignoreDuplicates: false,
+            defaultToNull: false
           })
           .select()
 

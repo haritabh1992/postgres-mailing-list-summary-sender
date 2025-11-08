@@ -4,6 +4,10 @@
   "framework": "vite",
   "rewrites": [
     {
+      "source": "/t/:slug",
+      "destination": "/api/thread-redirect?slug=:slug"
+    },
+    {
       "source": "/(.*)",
       "destination": "/index.html"
     }
