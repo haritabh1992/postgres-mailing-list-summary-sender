@@ -88,7 +88,7 @@ async function sendConfirmationEmail(email: string, confirmationToken: string, c
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        from: 'PostgreSQL Hackers Digest <noreply@postgreshackersdigest.dev>',
+        from: 'PostgreSQL Hackers Digest <digest@postgreshackersdigest.dev>',
         to: [email],
         subject: 'Confirm your subscription to PostgreSQL Hackers Digest',
         html: emailContent

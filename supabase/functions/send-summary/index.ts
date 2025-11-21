@@ -206,7 +206,7 @@ async function sendSummaryEmail(email: string, subject: string, htmlContent: str
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        from: 'PostgreSQL Hackers Digest <noreply@postgreshackersdigest.dev>',
+        from: 'PostgreSQL Hackers Digest <digest@postgreshackersdigest.dev>',
         to: [email],
         subject: subject,
         html: htmlContent
