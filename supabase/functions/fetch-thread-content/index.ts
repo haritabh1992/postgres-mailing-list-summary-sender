@@ -80,31 +80,41 @@ serve(async (req) => {
         const threadContent = await fetchThreadContent(thread.thread_url)
         
         if (threadContent) {
-          // Update the mail_threads table with processed content
-          const { error: insertError } = await supabaseClient
+          // Update the mail_threads table with metadata (excluding content)
+          const { error: updateError } = await supabaseClient
             .from('mail_threads')
             .update({
               subject: threadContent.subject,
               thread_id: threadContent.thread_id,
-              content: threadContent.content,
               author_name: threadContent.author_email,
               is_processed: true,
               updated_at: new Date().toISOString()
             })
             .eq('thread_url', thread.thread_url)
 
-          if (insertError) {
-            console.log(`❌ INFO: Error storing thread content: ${insertError.message}`)
+          if (updateError) {
+            console.log(`❌ INFO: Error updating thread metadata: ${updateError.message}`)
             errorCount++
           } else {
-            // Mark thread as processed
-            await supabaseClient
-              .from('mail_threads')
-              .update({ is_processed: true })
-              .eq('id', thread.id)
+            // Upsert content into mail_thread_contents table
+            const { error: contentError } = await supabaseClient
+              .from('mail_thread_contents')
+              .upsert({
+                thread_id: thread.id,
+                content: threadContent.content,
+                updated_at: new Date().toISOString()
+              }, {
+                onConflict: 'thread_id',
+                ignoreDuplicates: false
+              })
 
-            processedCount++
-            console.log(`✅ INFO: Successfully processed and stored thread content`)
+            if (contentError) {
+              console.log(`❌ INFO: Error storing thread content: ${contentError.message}`)
+              errorCount++
+            } else {
+              processedCount++
+              console.log(`✅ INFO: Successfully processed and stored thread content`)
+            }
           }
         } else {
           console.log(`⚠️ INFO: Could not extract content from thread`)

@@ -115,7 +115,7 @@ serve(async (req) => {
 
     const { data: mailThreads, error: threadsError } = await supabaseClient
       .from('mail_threads')
-      .select('*')
+      .select('*, mail_thread_contents(content)')
       .gte('post_date', startDateStr)
       .lte('post_date', endDateStr)
       .order('post_date', { ascending: false })
@@ -518,6 +518,19 @@ ${summary.summary}
   return weeklySummary
 }
 
+// Helper function to extract content from thread object (handles both old and new schema)
+function getThreadContent(thread: any): string | null {
+  // New schema: content is in mail_thread_contents relation
+  if (thread.mail_thread_contents && thread.mail_thread_contents.content) {
+    return thread.mail_thread_contents.content
+  }
+  // Old schema: content is directly on thread (for backward compatibility during migration)
+  if (thread.content) {
+    return thread.content
+  }
+  return null
+}
+
 // Helper function to count tokens accurately using gpt-tokenizer
 function countTokens(text: string): number {
   return encode(text).length
@@ -563,7 +576,7 @@ function createIndividualDiscussionPrompt(discussion: any): string {
       emailContent += `\n**Email ${postIndex + 1}** (${new Date(post.post_date).toLocaleString()}):\n`
       emailContent += `From: ${post.author_name || 'Unknown'}\n`
       emailContent += `Subject: ${post.subject}\n\n`
-      emailContent += `Content: ${post.content || '[No content available]'}\n`
+      emailContent += `Content: ${getThreadContent(post) || '[No content available]'}\n`
       emailContent += `---\n`
     })
   }
@@ -623,9 +636,8 @@ function createSummaryPrompt(discussions: any[], stats: any): string {
         discussionText += `From: ${post.author_name || 'Unknown'}\n`
         discussionText += `Subject: ${post.subject}\n\n`
         
-        // Note: mail_threads table doesn't store content, only metadata
-        // Content would need to be fetched separately if needed
-        discussionText += `Content: ${post.content || '[No content available]'}\n`
+        // Content is stored in mail_thread_contents table (joined relation)
+        discussionText += `Content: ${getThreadContent(post) || '[No content available]'}\n`
         discussionText += `---\n`
       })
     }
