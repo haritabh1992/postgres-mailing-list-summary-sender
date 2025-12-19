@@ -211,15 +211,38 @@ async function fetchMonthThreads(year: number, month: number, startDate: Date, e
   console.log(`Fetching from: ${url}`)
   
   try {
-    const response = await fetch(url)
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}: ${response.statusText}`)
-    }
+    console.log(`🌐 Attempting to fetch from: ${url}`)
     
-    const html = await response.text()
-    return parseMailThreadsFromHtml(html, startDate, endDate, year, month)
+    // Add timeout to prevent hanging (30 seconds)
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), 30000)
+    
+    try {
+      const response = await fetch(url, { signal: controller.signal })
+      clearTimeout(timeoutId)
+      
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`)
+      }
+      
+      console.log(`✅ Successfully fetched ${url} (status: ${response.status})`)
+      const html = await response.text()
+      console.log(`📄 Received HTML content (${html.length} characters)`)
+      
+      const threads = parseMailThreadsFromHtml(html, startDate, endDate, year, month)
+      console.log(`✅ Parsed ${threads.length} threads from ${year}-${month}`)
+      
+      return threads
+    } catch (fetchError) {
+      clearTimeout(timeoutId)
+      if (fetchError.name === 'AbortError') {
+        throw new Error(`Request timeout after 30 seconds for ${url}`)
+      }
+      throw fetchError
+    }
   } catch (error) {
-    console.error(`Failed to fetch ${url}:`, error)
+    console.error(`❌ Failed to fetch ${url}:`, error)
+    console.error(`❌ Error details:`, error.message)
     return []
   }
 }

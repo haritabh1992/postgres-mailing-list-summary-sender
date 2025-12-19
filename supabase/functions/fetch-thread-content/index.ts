@@ -30,8 +30,11 @@ serve(async (req) => {
     console.log('🔍 INFO: Starting to fetch thread content from mail_threads table')
 
     // Get batch size from request or default to 100
-    const { batchSize } = await req.json().catch(() => ({ batchSize: 100 }))
-    const actualBatchSize = Math.min(Math.max(batchSize || 100, 10), 500) // Between 10-500
+    const body = await req.json().catch(() => ({}))
+    const batchSize = body.batchSize || 100
+    const actualBatchSize = Math.min(Math.max(batchSize, 10), 500) // Between 10-500
+    
+    console.log(`📦 INFO: Requested batch size: ${batchSize}, actual batch size: ${actualBatchSize}`)
 
     console.log(`📦 INFO: Processing batch of ${actualBatchSize} threads`)
 
@@ -121,8 +124,8 @@ serve(async (req) => {
           errorCount++
         }
 
-        // Add small delay to avoid overwhelming the server
-        await new Promise(resolve => setTimeout(resolve, 1000))
+        // Add small delay to avoid overwhelming the server (reduced from 1000ms to 200ms)
+        await new Promise(resolve => setTimeout(resolve, 200))
 
       } catch (error) {
         console.log(`❌ INFO: Error processing thread "${thread.subject}": ${error.message}`)
@@ -173,25 +176,40 @@ async function fetchThreadContent(threadUrl: string): Promise<MailThreadContent 
   try {
     console.log(`🌐 INFO: Fetching HTML from: ${threadUrl}`)
     
-    const response = await fetch(threadUrl)
-    if (!response.ok) {
-      console.log(`❌ INFO: HTTP error ${response.status} for ${threadUrl}`)
-      return null
-    }
-
-    const html = await response.text()
-    console.log(`📄 INFO: Received HTML content (${html.length} characters)`)
-
-    // Extract email content from the PostgresPro mail archive page
-    const content = parseEmailContentFromHtml(html, threadUrl)
+    // Add timeout to prevent hanging (20 seconds)
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), 20000)
     
-    if (content) {
-      console.log(`✅ INFO: Successfully parsed email content (${content.content.length} chars)`)
-    } else {
-      console.log(`❌ INFO: Failed to parse email content from HTML`)
-    }
+    try {
+      const response = await fetch(threadUrl, { signal: controller.signal })
+      clearTimeout(timeoutId)
+      
+      if (!response.ok) {
+        console.log(`❌ INFO: HTTP error ${response.status} for ${threadUrl}`)
+        return null
+      }
 
-    return content
+      const html = await response.text()
+      console.log(`📄 INFO: Received HTML content (${html.length} characters)`)
+
+      // Extract email content from the PostgresPro mail archive page
+      const content = parseEmailContentFromHtml(html, threadUrl)
+      
+      if (content) {
+        console.log(`✅ INFO: Successfully parsed email content (${content.content.length} chars)`)
+      } else {
+        console.log(`❌ INFO: Failed to parse email content from HTML`)
+      }
+
+      return content
+    } catch (fetchError) {
+      clearTimeout(timeoutId)
+      if (fetchError.name === 'AbortError') {
+        console.log(`❌ INFO: Request timeout after 20 seconds for ${threadUrl}`)
+        return null
+      }
+      throw fetchError
+    }
   } catch (error) {
     console.log(`❌ INFO: Error fetching thread content: ${error.message}`)
     return null
