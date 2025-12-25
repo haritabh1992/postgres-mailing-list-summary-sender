@@ -4,6 +4,7 @@ import { SignupForm } from '../components/SignupForm'
 import { SuccessMessage } from '../components/SuccessMessage'
 import { ErrorMessage } from '../components/ErrorMessage'
 import { StatsCounter } from '../components/StatsCounter'
+import { SummariesList } from '../components/SummariesList'
 
 export function HomePage() {
   const [successMessage, setSuccessMessage] = useState<string | null>(null)
@@ -44,7 +45,7 @@ export function HomePage() {
       </header>
 
       {/* Main Content */}
-      <main className="flex-grow max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-12 w-full">
+      <main className="flex-grow max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12 w-full">
         <div className="text-center mb-12">
           <h2 className="text-4xl font-bold text-gray-900 mb-4">
             Never Miss Important PostgreSQL Hackers Discussions
@@ -55,32 +56,40 @@ export function HomePage() {
           </p>
         </div>
 
-        {/* Subscription Form */}
-        <div className="max-w-md mx-auto">
-          <div className="card">
-            <div className="text-center mb-6">
-              <h3 className="text-2xl font-bold text-gray-900 mb-2">
-                Subscribe to Weekly Summary
-              </h3>
-              <p className="text-gray-600">
-                Join thousands of PostgreSQL developers who stay informed.
-              </p>
+        {/* Single Column Layout: Subscribe section first, then Archive below */}
+        <div className="flex flex-col">
+          {/* Subscription Form */}
+          <div className="w-full max-w-md mx-auto mb-12">
+            <div className="card">
+              <div className="text-center mb-6">
+                <h3 className="text-2xl font-bold text-gray-900 mb-2">
+                  Subscribe to Weekly Summary
+                </h3>
+                <p className="text-gray-600">
+                  Join thousands of PostgreSQL developers who stay informed.
+                </p>
+              </div>
+
+              {/* Messages */}
+              {successMessage && (
+                <SuccessMessage message={successMessage} onClose={clearMessages} />
+              )}
+              {errorMessage && (
+                <ErrorMessage message={errorMessage} onClose={clearMessages} />
+              )}
+
+              {/* Form */}
+              <SignupForm onSuccess={handleSuccess} onError={handleError} />
             </div>
 
-            {/* Messages */}
-            {successMessage && (
-              <SuccessMessage message={successMessage} onClose={clearMessages} />
-            )}
-            {errorMessage && (
-              <ErrorMessage message={errorMessage} onClose={clearMessages} />
-            )}
-
-            {/* Form */}
-            <SignupForm onSuccess={handleSuccess} onError={handleError} />
+            {/* Subtle Stats */}
+            <StatsCounter />
           </div>
 
-          {/* Subtle Stats */}
-          <StatsCounter />
+          {/* Archive Section: Always below subscribe section */}
+          <div className="w-full max-w-6xl mx-auto">
+            <SummariesList />
+          </div>
         </div>
 
       </main>

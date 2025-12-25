@@ -35,11 +35,11 @@ export function SummaryDetailPage() {
         {/* Header */}
         <div className="mb-8">
           <Link
-            to="/archive"
+            to="/"
             className="inline-flex items-center text-postgres-600 hover:text-postgres-800 font-medium mb-4 transition-colors"
           >
             <ArrowLeft className="h-4 w-4 mr-2" />
-            Back to Archive
+            Back to Home
           </Link>
           
           <h1 className="text-4xl font-bold text-gray-900 mb-2">
@@ -61,8 +61,8 @@ export function SummaryDetailPage() {
               <p className="text-lg font-medium">Summary Not Found</p>
             </div>
             <p className="text-gray-600 mb-6">{error}</p>
-            <Link to="/archive" className="btn-primary">
-              Back to Archive
+            <Link to="/" className="btn-primary">
+              Back to Home
             </Link>
           </div>
         )}
