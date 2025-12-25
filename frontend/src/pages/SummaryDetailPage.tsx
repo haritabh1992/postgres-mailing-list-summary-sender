@@ -92,6 +92,34 @@ export function SummaryDetailPage() {
 
             {/* Summary Content */}
             <div className="p-8">
+              <style>{`
+                .commitfest-tags-container {
+                  margin: 1rem 0;
+                  display: flex;
+                  flex-wrap: wrap;
+                  align-items: center;
+                  gap: 0.5rem;
+                }
+                .commitfest-tags-container strong {
+                  margin-right: 0.25rem;
+                  color: #374151;
+                }
+                .commitfest-tag {
+                  display: inline-block;
+                  background-color: #e0f2fe;
+                  color: #0369a1;
+                  padding: 0.375rem 0.75rem;
+                  border-radius: 0.5rem;
+                  font-size: 0.875rem;
+                  font-weight: 500;
+                  border: 1px solid #bae6fd;
+                  transition: all 0.2s ease;
+                }
+                .commitfest-tag:hover {
+                  background-color: #bae6fd;
+                  border-color: #7dd3fc;
+                }
+              `}</style>
               <div 
                 className="prose prose-lg max-w-none
                   prose-headings:text-postgres-700

@@ -15,6 +15,7 @@ interface TopDiscussion {
   first_post_at: string
   last_post_at: string
   full_content?: any[]
+  commitfest_tags?: string[]
 }
 
 interface WeeklySummary {
@@ -223,7 +224,7 @@ serve(async (req) => {
     console.log(`🤖 INFO: Starting AI summary generation...`)
     const actualStartDate = new Date(stats.date_range.start)
     const actualEndDate = new Date(stats.date_range.end)
-    const summaryContent = await generateAISummary(topDiscussions, stats, actualStartDate, actualEndDate)
+    const summaryContent = await generateAISummary(topDiscussions, stats, actualStartDate, actualEndDate, supabaseClient)
     console.log(`📝 INFO: Generated summary length: ${summaryContent.length} characters`)
     console.log(`📝 INFO: Summary preview: ${summaryContent.substring(0, 200)}...`)
 
@@ -363,7 +364,7 @@ function getLastFriday(date: Date): Date {
   return lastFriday
 }
 
-async function generateAISummary(discussions: TopDiscussion[], stats: any, startDate: Date, endDate: Date): Promise<string> {
+async function generateAISummary(discussions: TopDiscussion[], stats: any, startDate: Date, endDate: Date, supabaseClient: any): Promise<string> {
   console.log(`🤖 INFO: generateAISummary called with:`)
   console.log(`  Discussions count: ${discussions.length}`)
   console.log(`  Stats:`, stats)
@@ -389,6 +390,12 @@ async function generateAISummary(discussions: TopDiscussion[], stats: any, start
       
       const discussionSummary = await generateIndividualDiscussionSummary(discussion, openaiApiKey)
       const { threadUrl, redirectSlug } = resolveDiscussionLinks(discussion)
+      
+      // Fetch commitfest tags for this discussion
+      const commitfestTags = await getCommitfestTagsForSubject(discussion.subject, supabaseClient)
+      if (commitfestTags.length > 0) {
+        console.log(`🏷️  INFO: Found ${commitfestTags.length} commitfest tags for "${discussion.subject}": ${commitfestTags.join(', ')}`)
+      }
 
       individualSummaries.push({
         subject: discussion.subject,
@@ -398,7 +405,8 @@ async function generateAISummary(discussions: TopDiscussion[], stats: any, start
         first_post_at: discussion.first_post_at,
         last_post_at: discussion.last_post_at,
         thread_url: threadUrl,
-        redirect_slug: redirectSlug
+        redirect_slug: redirectSlug,
+        commitfest_tags: commitfestTags
       })
       console.log(`✅ INFO: Summary generated for discussion ${i + 1} (${discussionSummary.length} chars)`)
     }
@@ -429,14 +437,14 @@ async function generateIndividualDiscussionSummary(discussion: any, openaiApiKey
     messages: [
       {
         role: 'system',
-        content: `You are an expert PostgreSQL core developer who creates detailed summaries 
-          of individual mailing list discussions. Write a comprehensive summary that includes 
-          specific technical details, exact function names, data structures, algorithms, 
-          performance metrics, and implementation approaches discussed. Focus on concrete 
-          technical decisions, code changes, and PostgreSQL internals mentioned. Avoid 
-          high-level descriptions - include specific technical information that would be 
-          valuable to PostgreSQL developers working on the codebase. Your summary should be 
-          approximately 200 words.`
+        content: `You are an expert PostgreSQL core developer who creates detailed narrative summaries 
+          of individual mailing list discussions. Write a comprehensive summary in a flowing narrative 
+          style (not bullet points) that includes specific technical details, exact function names, 
+          data structures, algorithms, performance metrics, and implementation approaches discussed. 
+          Focus on concrete technical decisions, code changes, and PostgreSQL internals mentioned. 
+          Avoid high-level descriptions - include specific technical information that would be 
+          valuable to PostgreSQL developers working on the codebase. Write in paragraph form with 
+          smooth transitions between ideas. Your summary should be approximately 200 words.`
       },
       {
         role: 'user',
@@ -508,8 +516,31 @@ This week saw ${stats.total_posts} posts from ${stats.total_participants} partic
 `
     }
     
+    // Add commitfest tags if available (as HTML badges)
+    if (summary.commitfest_tags && summary.commitfest_tags.length > 0) {
+      // Escape HTML in tag names to prevent XSS
+      const escapeHtml = (text: string) => {
+        return text
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;')
+          .replace(/'/g, '&#039;')
+      }
+      
+      const tagsHtml = summary.commitfest_tags
+        .map(tag => `<span class="commitfest-tag">${escapeHtml(tag)}</span>`)
+        .join(' ')
+      weeklySummary += `<div class="commitfest-tags-container"><strong>Commitfest Tags:</strong> ${tagsHtml}</div>
+`
+    }
+    
+    // Escape HTML/XML tags in the summary text to prevent them from being interpreted as HTML
+    // Only escape the summary body, not the tags container (which is already added above)
+    const escapedSummary = escapeHtmlTagsInText(summary.summary)
+    
     weeklySummary += `
-${summary.summary}
+${escapedSummary}
 
 `
   })
@@ -561,11 +592,7 @@ function createIndividualDiscussionPrompt(discussion: any): string {
   discussionText += `- Participants: ${discussion.participants}\n`
   discussionText += `- Duration: ${new Date(discussion.first_post_at).toLocaleDateString()} - ${new Date(discussion.last_post_at).toLocaleDateString()}\n`
   
-  // Add reference link
-  if (discussion.full_content && discussion.full_content.length > 0) {
-    const { threadUrl, authorName } = resolveDiscussionPromptLink(discussion)
-    discussionText += `- Reference Link: [View Thread](${threadUrl}) by ${authorName}\n`
-  }
+  // Do not include reference links in the prompt - we want pure narrative summaries
   
   discussionText += `\n### Email Content:\n`
   
@@ -585,23 +612,23 @@ function createIndividualDiscussionPrompt(discussion: any): string {
   const truncatedEmailContent = truncateToLastTokens(emailContent, 12000)
   discussionText += truncatedEmailContent
   
-  const prompt = `Analyze this PostgreSQL mailing list discussion and create a detailed summary:
+  const prompt = `Analyze this PostgreSQL mailing list discussion and create a detailed narrative summary:
 
 ${discussionText}
 
-Please create a comprehensive summary that:
-1. Explains the main technical topic or problem being discussed
+Please create a comprehensive summary in narrative paragraph form (NOT bullet points) that:
+1. Explains the main technical topic or problem being discussed in a flowing narrative style
 2. Includes specific technical details, code changes, algorithms, or implementation approaches mentioned
 3. Mentions exact function names, data structures, performance metrics, or configuration changes discussed
 4. Highlights specific technical decisions, trade-offs, or implementation choices made
 5. Identifies any consensus reached or ongoing debates with technical reasoning
 6. Includes any specific PostgreSQL internals, APIs, or system behavior discussed
-7. Is approximately 200 words
-8. Preserves the reference link provided
-9. Is written for PostgreSQL core developers who need technical depth
-10. Do not include any links in the summary
+7. Is approximately 200 words written in paragraph form with smooth transitions
+8. Is written for PostgreSQL core developers who need technical depth
+9. Write in a narrative style with complete sentences and paragraphs - avoid bullet points, numbered lists, or fragmented sentences
+10. Do NOT include any references to mail threads, links, authors, or thread URLs - write only pure narrative text summarizing the technical discussion
 
-Focus on the technical substance, specific implementation details, and exact technical decisions. Avoid high-level descriptions - include concrete technical information that would be valuable to PostgreSQL developers working on the codebase.`
+Focus on the technical substance, specific implementation details, and exact technical decisions. Write in a flowing narrative style that reads like a technical article, not a list. Avoid high-level descriptions - include concrete technical information that would be valuable to PostgreSQL developers working on the codebase. The summary should be pure narrative text without any references to the source material.`
 
   const finalTokenCount = countTokens(prompt)
   console.log(`📊 INFO: Final prompt contains ${finalTokenCount} tokens`)
@@ -620,13 +647,7 @@ function createSummaryPrompt(discussions: any[], stats: any): string {
     discussionText += `- Participants: ${disc.participants}\n`
     discussionText += `- Duration: ${new Date(disc.first_post_at).toLocaleDateString()} - ${new Date(disc.last_post_at).toLocaleDateString()}\n`
     
-    // Add reference links for each post in this discussion
-    if (disc.full_content && disc.full_content.length > 0) {
-      discussionText += `- Reference Link:\n`
-      const { threadUrl, authorName } = resolveDiscussionPromptLink(disc)
-      discussionText += `  - [View Thread](${threadUrl}) by ${authorName}\n`
-      discussionText += `\n`
-    }
+    // Do not include reference links in the prompt - we want pure narrative summaries
     
     // Add full email content for each post in this discussion
     if (disc.full_content && disc.full_content.length > 0) {
@@ -657,18 +678,19 @@ Weekly Statistics:
 - Total subscribers: ${stats.total_subscribers}
 - Date range: ${stats.date_range?.start || 'Unknown'} to ${stats.date_range?.end || 'Unknown'}
 
-Please analyze the full email content above and create a comprehensive summary that:
-1. Highlights the most important technical discussions and their key points
+Please analyze the full email content above and create a comprehensive narrative summary that:
+1. Highlights the most important technical discussions and their key points in a flowing narrative style
 2. Explains the significance of each discussion based on the actual email content
 3. Mentions key decisions, proposals, or consensus reached
 4. Identifies any controversial topics or ongoing debates
 5. Summarizes technical solutions or approaches discussed
-6. Is written in a professional but accessible tone for PostgreSQL developers
+6. Is written in a professional but accessible narrative tone for PostgreSQL developers
 7. Is approximately 800-1200 words given the rich content available
-8. Include the reference links provided for each discussion so readers can access the full threads
-9. DO NOT include any conclusion, summary, or "next steps" section - end with the last discussion
+8. DO NOT include any conclusion, summary, or "next steps" section - end with the last discussion
+9. Write in narrative paragraph form with smooth transitions - avoid bullet points, numbered lists, or fragmented sentences
+10. Do NOT include any references to mail threads, links, authors, thread URLs, or source material - write only pure narrative text summarizing the technical discussions
 
-Format the summary with clear headings and bullet points. Focus on the technical substance of the discussions rather than just listing topics. Make sure to preserve the reference links in the output.`
+Format the summary with clear headings and narrative paragraphs. Write in a flowing narrative style that reads like a technical article, connecting ideas with smooth transitions. Focus on the technical substance of the discussions in paragraph form rather than listing topics. The summary should be pure narrative text without any references to the source material, links, or authors.`
 
   console.log(`📝 INFO: Final detailed prompt created (${prompt})`)
   console.log(`📝 INFO: Sending this COMPLETE prompt to AI:`)
@@ -677,6 +699,124 @@ Format the summary with clear headings and bullet points. Focus on the technical
   console.log(`=== FULL PROMPT END ===`)
   
   return prompt
+}
+
+function normalizeSubject(subject: string): string {
+  // Lowercase
+  let normalized = subject.toLowerCase()
+  
+  // Trim whitespace
+  normalized = normalized.trim()
+  
+  // Remove "Re:", "Fwd:", "RE:", "FWD:" prefixes
+  normalized = normalized.replace(/^(re|fwd):\s*/i, '')
+  
+  // Remove extra whitespace
+  normalized = normalized.replace(/\s+/g, ' ')
+  
+  return normalized.trim()
+}
+
+function escapeHtmlTagsInText(text: string): string {
+  // Escape HTML/XML-like tags that aren't part of markdown syntax
+  // This prevents tags like <sect1>, <title>, <productname> from being interpreted as HTML
+  
+  // First, protect markdown code blocks (backticks)
+  const codeBlockRegex = /`([^`]+)`/g
+  const codeBlocks: string[] = []
+  let codeBlockIndex = 0
+  let protectedText = text.replace(codeBlockRegex, (match) => {
+    codeBlocks.push(match)
+    return `__CODE_BLOCK_${codeBlockIndex++}__`
+  })
+  
+  // Protect markdown links [text](url)
+  const linkRegex = /\[([^\]]+)\]\(([^)]+)\)/g
+  const links: string[] = []
+  let linkIndex = 0
+  protectedText = protectedText.replace(linkRegex, (match) => {
+    links.push(match)
+    return `__LINK_${linkIndex++}__`
+  })
+  
+  // Protect HTML entities that are already escaped
+  const entityRegex = /&[a-z0-9#]+;/gi
+  const entities: string[] = []
+  let entityIndex = 0
+  protectedText = protectedText.replace(entityRegex, (match) => {
+    entities.push(match)
+    return `__ENTITY_${entityIndex++}__`
+  })
+  
+  // Now escape standalone HTML/XML-like tags (angle brackets with alphanumeric content)
+  // Pattern: < followed by word characters, optional attributes, and >
+  protectedText = protectedText.replace(/<([a-zA-Z][a-zA-Z0-9]*)(\s[^>]*)?>/g, (match, tagName, attrs) => {
+    // Don't escape common markdown HTML tags that are safe
+    const safeTags = ['br', 'hr', 'p', 'div', 'span', 'strong', 'em', 'b', 'i', 'u', 'a', 'img', 'ul', 'ol', 'li', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'blockquote', 'pre', 'code', 'table', 'thead', 'tbody', 'tr', 'th', 'td']
+    if (safeTags.includes(tagName.toLowerCase())) {
+      return match // Keep safe tags as-is
+    }
+    // Escape other tags
+    return `&lt;${tagName}${attrs || ''}&gt;`
+  })
+  
+  // Escape closing tags
+  protectedText = protectedText.replace(/<\/([a-zA-Z][a-zA-Z0-9]*)>/g, (match, tagName) => {
+    const safeTags = ['br', 'hr', 'p', 'div', 'span', 'strong', 'em', 'b', 'i', 'u', 'a', 'img', 'ul', 'ol', 'li', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'blockquote', 'pre', 'code', 'table', 'thead', 'tbody', 'tr', 'th', 'td']
+    if (safeTags.includes(tagName.toLowerCase())) {
+      return match
+    }
+    return `&lt;/${tagName}&gt;`
+  })
+  
+  // Restore protected code blocks
+  codeBlocks.forEach((block, index) => {
+    protectedText = protectedText.replace(`__CODE_BLOCK_${index}__`, block)
+  })
+  
+  // Restore protected links
+  links.forEach((link, index) => {
+    protectedText = protectedText.replace(`__LINK_${index}__`, link)
+  })
+  
+  // Restore protected entities
+  entities.forEach((entity, index) => {
+    protectedText = protectedText.replace(`__ENTITY_${index}__`, entity)
+  })
+  
+  return protectedText
+}
+
+async function getCommitfestTagsForSubject(subject: string, supabaseClient: any): Promise<string[]> {
+  try {
+    // Normalize the subject for matching
+    const normalizedSubject = normalizeSubject(subject)
+    
+    if (!normalizedSubject) {
+      return []
+    }
+    
+    // Use RPC function to get tags (more reliable than direct queries across schemas)
+    const { data: tags, error } = await supabaseClient
+      .rpc('get_commitfest_tags_for_subject', {
+        p_subject_normalized: normalizedSubject
+      })
+    
+    if (error) {
+      console.log(`⚠️  WARN: Error fetching commitfest tags for subject "${subject}":`, error.message)
+      return []
+    }
+    
+    // Return tags array, filtering out empty strings
+    if (tags && Array.isArray(tags)) {
+      return tags.filter((tag: string) => tag && tag.trim().length > 0).sort()
+    }
+    
+    return []
+  } catch (error) {
+    console.log(`⚠️  WARN: Exception fetching commitfest tags for subject "${subject}":`, error)
+    return []
+  }
 }
 
 function resolveDiscussionLinks(discussion: any): { threadUrl: string | null, redirectSlug: string | null } {

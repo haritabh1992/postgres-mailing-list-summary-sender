@@ -10,8 +10,26 @@ marked.setOptions({
 export function markdownToHtml(markdown: string): string {
   if (!markdown) return '';
   
+  // Protect commitfest tags container before markdown processing
+  // Use a unique placeholder that won't be processed by markdown
+  const commitfestTagsRegex = /<div class="commitfest-tags-container">[\s\S]*?<\/div>/gi
+  const commitfestTags: string[] = []
+  let commitfestIndex = 0
+  let protectedMarkdown = markdown.replace(commitfestTagsRegex, (match) => {
+    commitfestTags.push(match)
+    // Use a unique placeholder that won't be interpreted by markdown
+    return `<!--COMMITFEST_TAGS_PLACEHOLDER_${commitfestIndex++}-->`
+  })
+  
   // Use marked library for reliable markdown conversion
-  let html = marked(markdown) as string;
+  let html = marked(protectedMarkdown) as string;
+  
+  // Restore protected commitfest tags - use a more robust replacement
+  commitfestTags.forEach((tags, index) => {
+    const placeholder = `<!--COMMITFEST_TAGS_PLACEHOLDER_${index}-->`
+    // Replace all occurrences in case there are multiple
+    html = html.split(placeholder).join(tags)
+  })
   
   // Add target="_blank" to external links for better UX
   html = html.replace(/<a href="([^"]+)"/g, '<a href="$1" target="_blank"');
