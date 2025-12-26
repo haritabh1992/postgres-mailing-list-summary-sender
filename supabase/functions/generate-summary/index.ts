@@ -616,7 +616,7 @@ This week saw ${stats.total_posts} posts from ${stats.total_participants} partic
           const style = getCommitfestTagStyle(tag.color)
           return `<span class="tag" data-tag-source="commitfest" style="${style}" title="Commitfest tag">${escapeHtml(tag.name)}</span>`
         })
-        .join(', ')
+        .join('<span class="tag-separator">,</span> ')
       weeklySummary += `<div class="tags-container"><strong>Commitfest Tags:</strong> ${commitfestTagsHtml}</div>
 `
     }
@@ -628,7 +628,7 @@ This week saw ${stats.total_posts} posts from ${stats.total_participants} partic
         .map((tag: string) => {
           return `<span class="tag" data-tag-source="ai" title="AI-generated tag">${escapeHtml(tag)}</span>`
         })
-        .join(', ')
+        .join('<span class="tag-separator">,</span> ')
       weeklySummary += `<div class="tags-container"><strong>AI-Generated Discussion Tags:</strong> ${aiTagsHtml}</div>
 `
     }

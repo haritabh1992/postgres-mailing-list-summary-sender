@@ -341,41 +341,239 @@ function createEmailContent(subscriber: Subscriber, summary: WeeklySummary): str
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>PostgreSQL Weekly Summary</title>
   <style>
-    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height: 1.6; color: #2d3748; max-width: 700px; margin: 0 auto; padding: 20px; background: #f8fafc; }
-    .summary-content { background: white; padding: 30px; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
-    .summary-content h1, .summary-content h2 { color: #336791; margin-top: 30px; margin-bottom: 15px; font-weight: 600; }
-    .summary-content h1:first-child { margin-top: 0; }
-    .summary-content h3 { color: #4a5568; margin-top: 25px; margin-bottom: 12px; font-weight: 600; }
-    .summary-content h4 { color: #4a5568; margin-top: 20px; margin-bottom: 10px; font-weight: 600; }
-    .summary-content ul, .summary-content ol { margin: 15px 0; padding-left: 25px; }
-    .summary-content li { margin: 8px 0; }
-    .summary-content a { color: #336791; text-decoration: none; font-weight: 500; }
-    .summary-content a:hover { text-decoration: underline; }
-    .summary-content p { margin: 15px 0; }
-    .summary-content blockquote { border-left: 4px solid #336791; padding-left: 20px; margin: 20px 0; font-style: italic; background: #f7fafc; padding: 15px 20px; border-radius: 4px; }
-    .summary-content code { background: #f1f5f9; padding: 2px 6px; border-radius: 3px; font-family: 'Monaco', 'Menlo', monospace; font-size: 0.9em; }
-    .summary-content pre { background: #1a202c; color: #e2e8f0; padding: 20px; border-radius: 6px; overflow-x: auto; margin: 20px 0; }
-    .summary-content pre code { background: none; padding: 0; color: inherit; }
-    .summary-content table { width: 100%; border-collapse: collapse; margin: 20px 0; }
-    .summary-content th, .summary-content td { border: 1px solid #e2e8f0; padding: 12px; text-align: left; }
-    .summary-content th { background: #f7fafc; font-weight: 600; color: #2d3748; }
-    .summary-content hr { border: none; border-top: 2px solid #e2e8f0; margin: 30px 0; }
-    .footer { text-align: center; margin-top: 40px; font-size: 12px; color: #718096; }
-    .unsubscribe { margin-top: 20px; }
-    .unsubscribe a { color: #336791; text-decoration: none; }
+    body { 
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; 
+      line-height: 1.6; 
+      color: #1f2937; 
+      max-width: 896px; 
+      margin: 0 auto; 
+      padding: 20px; 
+      background: #f0f9ff; 
+    }
+    .summary-wrapper { 
+      background: white; 
+      border-radius: 8px; 
+      box-shadow: 0 4px 6px rgba(0,0,0,0.1); 
+      overflow: hidden;
+    }
+    .summary-header {
+      background: linear-gradient(to right, #336791, #2d5a7a);
+      color: white;
+      padding: 32px;
+    }
+    .summary-header h2 {
+      color: white;
+      font-size: 24px;
+      font-weight: 700;
+      margin: 0 0 16px 0;
+    }
+    .summary-header .stats {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 24px;
+      color: #e0f2fe;
+      font-size: 14px;
+    }
+    .summary-content { 
+      padding: 32px; 
+    }
+    .summary-content h1 { 
+      color: #1e40af; 
+      font-size: 30px; 
+      font-weight: 700; 
+      margin-top: 0; 
+      margin-bottom: 24px; 
+    }
+    .summary-content h2 { 
+      color: #1e40af; 
+      font-size: 24px; 
+      font-weight: 600; 
+      margin-top: 32px; 
+      margin-bottom: 16px; 
+    }
+    .summary-content h3 { 
+      color: #374151; 
+      font-size: 20px; 
+      font-weight: 600; 
+      margin-top: 24px; 
+      margin-bottom: 12px; 
+    }
+    .summary-content h4 { 
+      color: #374151; 
+      font-size: 18px; 
+      font-weight: 600; 
+      margin-top: 20px; 
+      margin-bottom: 10px; 
+    }
+    .summary-content p { 
+      color: #374151; 
+      line-height: 1.75; 
+      margin-bottom: 16px; 
+      text-align: justify;
+    }
+    .summary-content strong { 
+      color: #111827; 
+      font-weight: 600; 
+    }
+    .summary-content ul, .summary-content ol { 
+      margin: 16px 0; 
+      padding-left: 24px; 
+    }
+    .summary-content li { 
+      color: #374151; 
+      margin: 8px 0; 
+    }
+    .summary-content a { 
+      color: #336791; 
+      text-decoration: none; 
+    }
+    .summary-content a:hover { 
+      text-decoration: underline; 
+    }
+    .summary-content blockquote { 
+      border-left: 4px solid #93c5fd; 
+      padding-left: 16px; 
+      margin: 20px 0; 
+      font-style: italic; 
+      background: #f0f9ff; 
+      padding: 12px 16px; 
+      border-radius: 4px; 
+      color: #4b5563;
+    }
+    .summary-content code { 
+      background: #f0f9ff; 
+      color: #1e40af; 
+      padding: 2px 8px; 
+      border-radius: 4px; 
+      font-family: 'Monaco', 'Menlo', 'Courier New', monospace; 
+      font-size: 0.875em; 
+    }
+    .summary-content pre { 
+      background: #111827; 
+      color: #e5e7eb; 
+      padding: 16px; 
+      border-radius: 8px; 
+      overflow-x: auto; 
+      margin: 20px 0; 
+    }
+    .summary-content pre code { 
+      background: none; 
+      padding: 0; 
+      color: inherit; 
+    }
+    .summary-content table { 
+      width: 100%; 
+      border-collapse: collapse; 
+      margin: 20px 0; 
+    }
+    .summary-content th, .summary-content td { 
+      border: 1px solid #d1d5db; 
+      padding: 12px; 
+      text-align: left; 
+    }
+    .summary-content th { 
+      background: #f3f4f6; 
+      font-weight: 600; 
+      color: #111827; 
+    }
+    .summary-content hr { 
+      border: none; 
+      border-top: 1px solid #d1d5db; 
+      margin: 32px 0; 
+    }
+    .tags-container {
+      margin: 16px 0;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 0;
+      font-size: 14px;
+    }
+    .tags-container strong {
+      margin-right: 8px;
+      color: #374151;
+    }
+    .tag-separator {
+      margin: 0 4px;
+    }
+    .tag {
+      margin-right: 0;
+    }
+    .tag {
+      display: inline-flex;
+      align-items: center;
+      padding: 6px 12px;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 500;
+      border: 1px solid;
+      position: relative;
+    }
+    .tag[data-tag-source="commitfest"] {
+      border-style: solid;
+    }
+    .tag[data-tag-source="commitfest"]::after {
+      content: "●";
+      font-size: 8px;
+      margin-left: 6px;
+      opacity: 0.6;
+    }
+    .tag[data-tag-source="ai"] {
+      background-color: #f3f4f6;
+      color: #1f2937;
+      border-color: #d1d5db;
+      border-style: dashed;
+    }
+    .tag[data-tag-source="ai"]::after {
+      content: "◇";
+      font-size: 8px;
+      margin-left: 6px;
+      opacity: 0.5;
+      color: #6b7280;
+    }
+    .footer { 
+      background: #f9fafb; 
+      padding: 24px 32px; 
+      border-top: 1px solid #e5e7eb;
+      text-align: center; 
+      font-size: 12px; 
+      color: #6b7280; 
+    }
+    .footer p {
+      margin: 8px 0;
+      text-align: center;
+    }
+    .unsubscribe { 
+      margin-top: 16px; 
+    }
+    .unsubscribe a { 
+      color: #336791; 
+      text-decoration: none; 
+    }
+    .unsubscribe a:hover {
+      text-decoration: underline;
+    }
   </style>
 </head>
 <body>
-  <div class="summary-content">
-    ${htmlSummary}
-  </div>
-
-  <div class="footer">
-    <p>This summary was generated automatically from the PostgreSQL mailing list discussions.</p>
-    <p>You're receiving this because you subscribed to PostgreSQL Hackers Digest.</p>
-    <div class="unsubscribe">
-      <a href="https://postgreshackersdigest.dev/unsubscribe?email=${encodeURIComponent(subscriber.email)}">Unsubscribe</a> | 
-      <a href="https://postgreshackersdigest.dev">Manage Subscription</a>
+  <div class="summary-wrapper">
+    <div class="summary-header">
+      <h2>Week of ${formatDateWithOrdinal(summary.week_end_date)}</h2>
+      <div class="stats">
+        <span>${summary.total_posts} posts</span>
+        <span>${summary.total_participants} participants</span>
+      </div>
+    </div>
+    <div class="summary-content">
+      ${htmlSummary}
+    </div>
+    <div class="footer">
+      <p>This summary was generated using AI and may not capture all nuances of the original discussions.</p>
+      <p>Source: PostgreSQL Hackers Mailing List</p>
+      <div class="unsubscribe">
+        <a href="https://postgreshackersdigest.dev/unsubscribe?email=${encodeURIComponent(subscriber.email)}">Unsubscribe</a> | 
+        <a href="https://postgreshackersdigest.dev">Manage Subscription</a>
+      </div>
     </div>
   </div>
 </body>
@@ -395,8 +593,23 @@ marked.setOptions({
 function convertMarkdownToHtml(markdown: string): string {
   if (!markdown) return ''
   
+  // Protect tags container before markdown processing (same as website)
+  const tagsContainerRegex = /<div class="tags-container">[\s\S]*?<\/div>/gi
+  const tagsContainers: string[] = []
+  let tagsIndex = 0
+  let protectedMarkdown = markdown.replace(tagsContainerRegex, (match) => {
+    tagsContainers.push(match)
+    return `<!--TAGS_CONTAINER_PLACEHOLDER_${tagsIndex++}-->`
+  })
+  
   // Use marked library for reliable markdown conversion
-  let html = marked(markdown) as string
+  let html = marked(protectedMarkdown) as string
+  
+  // Restore protected tags containers
+  tagsContainers.forEach((tags, index) => {
+    const placeholder = `<!--TAGS_CONTAINER_PLACEHOLDER_${index}-->`
+    html = html.split(placeholder).join(tags)
+  })
   
   // Add target="_blank" to external links for email compatibility
   html = html.replace(/<a href="([^"]+)"/g, '<a href="$1" target="_blank"')
