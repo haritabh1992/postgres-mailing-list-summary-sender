@@ -10,23 +10,23 @@ marked.setOptions({
 export function markdownToHtml(markdown: string): string {
   if (!markdown) return '';
   
-  // Protect commitfest tags container before markdown processing
+  // Protect tags container before markdown processing
   // Use a unique placeholder that won't be processed by markdown
-  const commitfestTagsRegex = /<div class="commitfest-tags-container">[\s\S]*?<\/div>/gi
-  const commitfestTags: string[] = []
-  let commitfestIndex = 0
-  let protectedMarkdown = markdown.replace(commitfestTagsRegex, (match) => {
-    commitfestTags.push(match)
+  const tagsContainerRegex = /<div class="tags-container">[\s\S]*?<\/div>/gi
+  const tagsContainers: string[] = []
+  let tagsIndex = 0
+  let protectedMarkdown = markdown.replace(tagsContainerRegex, (match) => {
+    tagsContainers.push(match)
     // Use a unique placeholder that won't be interpreted by markdown
-    return `<!--COMMITFEST_TAGS_PLACEHOLDER_${commitfestIndex++}-->`
+    return `<!--TAGS_CONTAINER_PLACEHOLDER_${tagsIndex++}-->`
   })
   
   // Use marked library for reliable markdown conversion
   let html = marked(protectedMarkdown) as string;
   
-  // Restore protected commitfest tags - use a more robust replacement
-  commitfestTags.forEach((tags, index) => {
-    const placeholder = `<!--COMMITFEST_TAGS_PLACEHOLDER_${index}-->`
+  // Restore protected tags containers - use a more robust replacement
+  tagsContainers.forEach((tags, index) => {
+    const placeholder = `<!--TAGS_CONTAINER_PLACEHOLDER_${index}-->`
     // Replace all occurrences in case there are multiple
     html = html.split(placeholder).join(tags)
   })

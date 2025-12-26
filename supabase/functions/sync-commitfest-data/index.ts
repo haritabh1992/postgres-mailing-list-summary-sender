@@ -51,6 +51,19 @@ serve(async (req) => {
     }
 
     try {
+      // Step 0: Refresh tags reference table from JSON (ensure tags are up to date)
+      // Note: This initiates an async HTTP request - tags may not be immediately available
+      // If tags are missing, the sync will fail when validating tags, which is expected behavior
+      console.log('🔄 Refreshing commitfest tags reference table...')
+      const { data: requestId, error: refreshTagsError } = await supabaseClient.rpc('refresh_commitfest_tags')
+      if (refreshTagsError) {
+        console.warn(`⚠️  Warning: Failed to initiate tags refresh: ${refreshTagsError.message}`)
+        // Don't fail the sync if tags refresh initiation fails, but log it
+        // Tags should already be populated from previous runs
+      } else {
+        console.log(`✅ Tags refresh request initiated (request_id: ${requestId})`)
+      }
+
       // Step 1: Fetch commitfest /open/ page
       console.log('📥 Fetching commitfest /open/ page...')
       const commitfestResponse = await fetch('https://commitfest.postgresql.org/open/')
@@ -83,14 +96,31 @@ serve(async (req) => {
           const patchInfo = extractPatchInfo(patchHtml, patchLink.patchId, patchLink.patchUrl)
           console.log(`  Tags: ${patchInfo.tags.join(', ') || 'none'}`)
 
-          // Upsert patch into database using helper function
+          // Validate tags and get tag IDs from reference table
+          const tagIds: number[] = []
+          for (const tagName of patchInfo.tags) {
+            // Look up tag ID by name using RPC function
+            const { data: tagId, error: tagLookupError } = await supabaseClient
+              .rpc('commitfest_get_tag_id_by_name', {
+                p_tag_name: tagName
+              })
+
+            if (tagLookupError || tagId === null || tagId === undefined) {
+              const errorMsg = `Tag '${tagName}' not found in commitfest.tags reference table`
+              console.error(`  ❌ ${errorMsg}`)
+              throw new Error(errorMsg)
+            }
+
+            tagIds.push(tagId)
+          }
+
+          // Upsert patch into database using helper function (without tags parameter)
           const { error: patchError } = await supabaseClient
             .rpc('commitfest_upsert_patch', {
               p_patch_id: patchInfo.patchId,
               p_patch_url: patchInfo.patchUrl,
               p_title: patchInfo.title,
               p_status: patchInfo.status,
-              p_tags: patchInfo.tags,
               p_author: patchInfo.author,
               p_created_at: patchInfo.createdAt,
               p_last_modified: patchInfo.lastModified
@@ -98,6 +128,19 @@ serve(async (req) => {
 
           if (patchError) {
             throw new Error(`Failed to upsert patch: ${patchError.message}`)
+          }
+
+          // Link patch to tags via junction table
+          if (tagIds.length > 0) {
+            const { error: linkTagsError } = await supabaseClient
+              .rpc('commitfest_link_patch_tags', {
+                p_patch_id: patchInfo.patchId,
+                p_tag_ids: tagIds
+              })
+
+            if (linkTagsError) {
+              throw new Error(`Failed to link patch tags: ${linkTagsError.message}`)
+            }
           }
 
           // Extract mail thread links with subjects from link text
@@ -135,6 +178,7 @@ serve(async (req) => {
 
               threadsProcessed++
             } catch (error) {
+              const mailThreadUrl = mailThread.url
               console.error(`  ❌ Error processing mail thread ${mailThreadUrl}:`, error)
               errors.push(`Mail thread ${mailThreadUrl}: ${error.message}`)
             }

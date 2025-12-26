@@ -93,31 +93,57 @@ export function SummaryDetailPage() {
             {/* Summary Content */}
             <div className="p-8">
               <style>{`
-                .commitfest-tags-container {
+                .tags-container {
                   margin: 1rem 0;
                   display: flex;
                   flex-wrap: wrap;
                   align-items: center;
                   gap: 0.5rem;
                 }
-                .commitfest-tags-container strong {
+                .tags-container strong {
                   margin-right: 0.25rem;
                   color: #374151;
                 }
-                .commitfest-tag {
-                  display: inline-block;
-                  background-color: #e0f2fe;
-                  color: #0369a1;
+                .tag {
+                  display: inline-flex;
+                  align-items: center;
                   padding: 0.375rem 0.75rem;
                   border-radius: 0.5rem;
                   font-size: 0.875rem;
                   font-weight: 500;
-                  border: 1px solid #bae6fd;
+                  border: 1px solid;
                   transition: all 0.2s ease;
+                  position: relative;
                 }
-                .commitfest-tag:hover {
-                  background-color: #bae6fd;
-                  border-color: #7dd3fc;
+                /* Commitfest tags - use provided colors from inline styles */
+                .tag[data-tag-source="commitfest"] {
+                  /* Colors are set via inline styles from database */
+                  /* Solid border to distinguish from AI tags */
+                  border-style: solid;
+                }
+                .tag[data-tag-source="commitfest"]::after {
+                  content: "●";
+                  font-size: 0.5rem;
+                  margin-left: 0.375rem;
+                  opacity: 0.6;
+                }
+                /* AI-generated tags - neutral styling with dashed border */
+                .tag[data-tag-source="ai"] {
+                  background-color: #f3f4f6;
+                  color: #1f2937;
+                  border-color: #d1d5db;
+                  border-style: dashed;
+                }
+                .tag[data-tag-source="ai"]::after {
+                  content: "◇";
+                  font-size: 0.5rem;
+                  margin-left: 0.375rem;
+                  opacity: 0.5;
+                  color: #6b7280;
+                }
+                .tag[data-tag-source="ai"]:hover {
+                  background-color: #e5e7eb;
+                  border-color: #9ca3af;
                 }
               `}</style>
               <div 

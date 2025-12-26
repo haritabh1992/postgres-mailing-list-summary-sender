@@ -7,6 +7,11 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 }
 
+interface CommitfestTag {
+  name: string
+  color: string | null
+}
+
 interface TopDiscussion {
   thread_id: string
   subject: string
@@ -15,7 +20,7 @@ interface TopDiscussion {
   first_post_at: string
   last_post_at: string
   full_content?: any[]
-  commitfest_tags?: string[]
+  commitfest_tags?: CommitfestTag[]
 }
 
 interface WeeklySummary {
@@ -379,6 +384,11 @@ async function generateAISummary(discussions: TopDiscussion[], stats: any, start
   }
 
   try {
+    // Fetch all available tags once at the start
+    console.log(`🏷️  INFO: Fetching all available commitfest tags...`)
+    const availableTags = await getAllCommitfestTags(supabaseClient)
+    console.log(`🏷️  INFO: Found ${availableTags.length} available tags for AI selection`)
+    
     console.log(`🔄 INFO: Generating individual summaries for each discussion...`)
     
     // Generate individual summaries for each discussion
@@ -388,13 +398,14 @@ async function generateAISummary(discussions: TopDiscussion[], stats: any, start
       const discussion = discussions[i]
       console.log(`📝 INFO: Processing discussion ${i + 1}/${discussions.length}: "${discussion.subject}"`)
       
-      const discussionSummary = await generateIndividualDiscussionSummary(discussion, openaiApiKey)
+      const {summary: discussionSummary, tags: aiTags} = await generateIndividualDiscussionSummary(discussion, openaiApiKey, availableTags)
       const { threadUrl, redirectSlug } = resolveDiscussionLinks(discussion)
       
       // Fetch commitfest tags for this discussion
       const commitfestTags = await getCommitfestTagsForSubject(discussion.subject, supabaseClient)
       if (commitfestTags.length > 0) {
-        console.log(`🏷️  INFO: Found ${commitfestTags.length} commitfest tags for "${discussion.subject}": ${commitfestTags.join(', ')}`)
+        const tagNames = commitfestTags.map(t => t.name).join(', ')
+        console.log(`🏷️  INFO: Found ${commitfestTags.length} commitfest tags for "${discussion.subject}": ${tagNames}`)
       }
 
       individualSummaries.push({
@@ -406,8 +417,13 @@ async function generateAISummary(discussions: TopDiscussion[], stats: any, start
         last_post_at: discussion.last_post_at,
         thread_url: threadUrl,
         redirect_slug: redirectSlug,
-        commitfest_tags: commitfestTags
+        commitfest_tags: commitfestTags,
+        ai_tags: aiTags
       })
+      
+      if (aiTags.length > 0) {
+        console.log(`🤖 INFO: AI generated ${aiTags.length} tags: ${aiTags.join(', ')}`)
+      }
       console.log(`✅ INFO: Summary generated for discussion ${i + 1} (${discussionSummary.length} chars)`)
     }
     
@@ -426,10 +442,10 @@ async function generateAISummary(discussions: TopDiscussion[], stats: any, start
   }
 }
 
-async function generateIndividualDiscussionSummary(discussion: any, openaiApiKey: string): Promise<string> {
+async function generateIndividualDiscussionSummary(discussion: any, openaiApiKey: string, availableTags: string[]): Promise<{summary: string, tags: string[]}> {
   console.log(`📝 INFO: Generating individual summary for: "${discussion.subject}"`)
   
-  const prompt = createIndividualDiscussionPrompt(discussion)
+  const prompt = createIndividualDiscussionPrompt(discussion, availableTags)
   console.log(`📝 INFO: Individual prompt created (${prompt.length} characters)`)
   
   const requestBody = {
@@ -444,7 +460,16 @@ async function generateIndividualDiscussionSummary(discussion: any, openaiApiKey
           Focus on concrete technical decisions, code changes, and PostgreSQL internals mentioned. 
           Avoid high-level descriptions - include specific technical information that would be 
           valuable to PostgreSQL developers working on the codebase. Write in paragraph form with 
-          smooth transitions between ideas. Your summary should be approximately 200 words.`
+          smooth transitions between ideas. Your summary should be approximately 200 words.
+          
+          You must return your response as a valid JSON object with the following structure:
+          {
+            "summary": "[your narrative summary text here]",
+            "tags": ["tag1", "tag2", "tag3"]
+          }
+          
+          The tags array must contain 0-3 tags selected from the available tags list provided in the prompt. 
+          Use only tags from the provided list - do not invent new tags. If no tags are relevant, use an empty array.`
       },
       {
         role: 'user',
@@ -452,7 +477,8 @@ async function generateIndividualDiscussionSummary(discussion: any, openaiApiKey
       }
     ],
     max_tokens: 2000,
-    temperature: 0.7
+    temperature: 0.7,
+    response_format: { type: "json_object" }
   }
   
   const response = await fetch('https://api.openai.com/v1/chat/completions', {
@@ -471,7 +497,44 @@ async function generateIndividualDiscussionSummary(discussion: any, openaiApiKey
   }
 
   const data = await response.json()
-  return data.choices[0].message.content
+  const responseContent = data.choices[0].message.content
+  
+  try {
+    // Parse JSON response
+    const parsed = JSON.parse(responseContent)
+    const summary = parsed.summary || responseContent // Fallback to entire response if summary missing
+    let tags = parsed.tags || []
+    
+    // Validate tags against available tags list
+    if (Array.isArray(tags)) {
+      // Filter to only include valid tags (case-sensitive match)
+      const validTags = tags
+        .filter((tag: any) => typeof tag === 'string' && availableTags.includes(tag))
+        .slice(0, 3) // Limit to 3 tags max
+      
+      // Log warnings for invalid tags
+      const invalidTags = tags.filter((tag: any) => typeof tag === 'string' && !availableTags.includes(tag))
+      if (invalidTags.length > 0) {
+        console.log(`⚠️  WARN: Invalid tags filtered out: ${invalidTags.join(', ')}`)
+      }
+      
+      // Log warning if more than 3 tags provided
+      if (tags.length > 3) {
+        console.log(`⚠️  WARN: More than 3 tags provided, using first 3: ${validTags.join(', ')}`)
+      }
+      
+      tags = validTags
+    } else {
+      console.log(`⚠️  WARN: Tags field is not an array, using empty array`)
+      tags = []
+    }
+    
+    return { summary, tags }
+  } catch (parseError) {
+    // If JSON parsing fails, treat entire response as summary
+    console.log(`⚠️  WARN: Failed to parse JSON response, using entire response as summary: ${parseError}`)
+    return { summary: responseContent, tags: [] }
+  }
 }
 
 function combineSummariesIntoWeekly(individualSummaries: any[], stats: any, weekStartDate: Date, weekEndDate: Date): string {
@@ -516,22 +579,57 @@ This week saw ${stats.total_posts} posts from ${stats.total_participants} partic
 `
     }
     
-    // Add commitfest tags if available (as HTML badges)
-    if (summary.commitfest_tags && summary.commitfest_tags.length > 0) {
-      // Escape HTML in tag names to prevent XSS
-      const escapeHtml = (text: string) => {
-        return text
-          .replace(/&/g, '&amp;')
-          .replace(/</g, '&lt;')
-          .replace(/>/g, '&gt;')
-          .replace(/"/g, '&quot;')
-          .replace(/'/g, '&#039;')
+    // Escape HTML in tag names to prevent XSS
+    const escapeHtml = (text: string) => {
+      return text
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;')
+    }
+    
+    // Helper function to generate color styles for commitfest tags
+    const getCommitfestTagStyle = (color: string | null) => {
+      if (!color) {
+        // Default colors if no color is specified
+        return 'background-color: #e0f2fe; color: #0369a1; border-color: #bae6fd;'
       }
+      // Convert hex color to RGB for better contrast calculation
+      const hex = color.replace('#', '')
+      const r = parseInt(hex.substr(0, 2), 16)
+      const g = parseInt(hex.substr(2, 2), 16)
+      const b = parseInt(hex.substr(4, 2), 16)
+      // Calculate brightness (relative luminance)
+      const brightness = (r * 299 + g * 587 + b * 114) / 1000
+      const textColor = brightness > 128 ? '#000000' : '#ffffff'
+      const borderColor = brightness > 128 ? 'rgba(0, 0, 0, 0.2)' : 'rgba(255, 255, 255, 0.3)'
       
-      const tagsHtml = summary.commitfest_tags
-        .map(tag => `<span class="commitfest-tag">${escapeHtml(tag)}</span>`)
+      return `background-color: ${color}; color: ${textColor}; border-color: ${borderColor};`
+    }
+    
+    // Add commitfest tags in separate section if available
+    const hasCommitfestTags = summary.commitfest_tags && summary.commitfest_tags.length > 0
+    if (hasCommitfestTags) {
+      const commitfestTagsHtml = summary.commitfest_tags
+        .map(tag => {
+          const style = getCommitfestTagStyle(tag.color)
+          return `<span class="tag" data-tag-source="commitfest" style="${style}" title="Commitfest tag">${escapeHtml(tag.name)}</span>`
+        })
         .join(' ')
-      weeklySummary += `<div class="commitfest-tags-container"><strong>Commitfest Tags:</strong> ${tagsHtml}</div>
+      weeklySummary += `<div class="tags-container"><strong>Commitfest Tags:</strong> ${commitfestTagsHtml}</div>
+`
+    }
+    
+    // Add AI-generated tags in separate section if available
+    const hasAiTags = summary.ai_tags && summary.ai_tags.length > 0
+    if (hasAiTags) {
+      const aiTagsHtml = summary.ai_tags
+        .map((tag: string) => {
+          return `<span class="tag" data-tag-source="ai" title="AI-generated tag">${escapeHtml(tag)}</span>`
+        })
+        .join(' ')
+      weeklySummary += `<div class="tags-container"><strong>AI-Generated Discussion Tags:</strong> ${aiTagsHtml}</div>
 `
     }
     
@@ -584,7 +682,7 @@ function truncateToLastTokens(text: string, maxTokens: number): string {
   return truncatedText
 }
 
-function createIndividualDiscussionPrompt(discussion: any): string {
+function createIndividualDiscussionPrompt(discussion: any, availableTags: string[]): string {
   console.log(`📝 INFO: Creating individual discussion prompt for: "${discussion.subject}"`)
   
   let discussionText = `## Discussion: ${discussion.subject}\n`
@@ -628,7 +726,21 @@ Please create a comprehensive summary in narrative paragraph form (NOT bullet po
 9. Write in a narrative style with complete sentences and paragraphs - avoid bullet points, numbered lists, or fragmented sentences
 10. Do NOT include any references to mail threads, links, authors, or thread URLs - write only pure narrative text summarizing the technical discussion
 
-Focus on the technical substance, specific implementation details, and exact technical decisions. Write in a flowing narrative style that reads like a technical article, not a list. Avoid high-level descriptions - include concrete technical information that would be valuable to PostgreSQL developers working on the codebase. The summary should be pure narrative text without any references to the source material.`
+Focus on the technical substance, specific implementation details, and exact technical decisions. Write in a flowing narrative style that reads like a technical article, not a list. Avoid high-level descriptions - include concrete technical information that would be valuable to PostgreSQL developers working on the codebase. The summary should be pure narrative text without any references to the source material.
+
+## Available Tags
+
+You may select up to 3 relevant tags from the following list to categorize this discussion. Only use tags from this list - do not invent new tags. If no tags are relevant, use an empty array.
+
+Available tags: ${availableTags.join(', ')}
+
+Return your response as a JSON object with this exact structure:
+{
+  "summary": "[your narrative summary text here]",
+  "tags": ["tag1", "tag2", "tag3"]
+}
+
+The tags array should contain 0-3 tags from the available tags list above. Select only the most relevant tags that best categorize this discussion.`
 
   const finalTokenCount = countTokens(prompt)
   console.log(`📊 INFO: Final prompt contains ${finalTokenCount} tokens`)
@@ -721,11 +833,20 @@ function escapeHtmlTagsInText(text: string): string {
   // Escape HTML/XML-like tags that aren't part of markdown syntax
   // This prevents tags like <sect1>, <title>, <productname> from being interpreted as HTML
   
-  // First, protect markdown code blocks (backticks)
+  // First, protect tags container to prevent escaping
+  const tagsContainerRegex = /<div class="tags-container">[\s\S]*?<\/div>/gi
+  const tagsContainers: string[] = []
+  let tagsContainerIndex = 0
+  let protectedText = text.replace(tagsContainerRegex, (match) => {
+    tagsContainers.push(match)
+    return `__TAGS_CONTAINER_${tagsContainerIndex++}__`
+  })
+  
+  // Protect markdown code blocks (backticks)
   const codeBlockRegex = /`([^`]+)`/g
   const codeBlocks: string[] = []
   let codeBlockIndex = 0
-  let protectedText = text.replace(codeBlockRegex, (match) => {
+  protectedText = protectedText.replace(codeBlockRegex, (match) => {
     codeBlocks.push(match)
     return `__CODE_BLOCK_${codeBlockIndex++}__`
   })
@@ -769,6 +890,11 @@ function escapeHtmlTagsInText(text: string): string {
     return `&lt;/${tagName}&gt;`
   })
   
+  // Restore protected tags containers
+  tagsContainers.forEach((container, index) => {
+    protectedText = protectedText.replace(`__TAGS_CONTAINER_${index}__`, container)
+  })
+  
   // Restore protected code blocks
   codeBlocks.forEach((block, index) => {
     protectedText = protectedText.replace(`__CODE_BLOCK_${index}__`, block)
@@ -787,7 +913,28 @@ function escapeHtmlTagsInText(text: string): string {
   return protectedText
 }
 
-async function getCommitfestTagsForSubject(subject: string, supabaseClient: any): Promise<string[]> {
+async function getAllCommitfestTags(supabaseClient: any): Promise<string[]> {
+  try {
+    const { data: tags, error } = await supabaseClient
+      .rpc('get_all_commitfest_tags')
+    
+    if (error) {
+      console.log(`⚠️  WARN: Error fetching all commitfest tags: ${error.message}`)
+      return []
+    }
+    
+    if (tags && Array.isArray(tags)) {
+      return tags.filter((tag: string) => tag && tag.trim().length > 0)
+    }
+    
+    return []
+  } catch (error) {
+    console.log(`⚠️  WARN: Exception fetching all commitfest tags:`, error)
+    return []
+  }
+}
+
+async function getCommitfestTagsForSubject(subject: string, supabaseClient: any): Promise<CommitfestTag[]> {
   try {
     // Normalize the subject for matching
     const normalizedSubject = normalizeSubject(subject)
@@ -796,9 +943,9 @@ async function getCommitfestTagsForSubject(subject: string, supabaseClient: any)
       return []
     }
     
-    // Use RPC function to get tags (more reliable than direct queries across schemas)
-    const { data: tags, error } = await supabaseClient
-      .rpc('get_commitfest_tags_for_subject', {
+    // Use RPC function to get tags with colors (more reliable than direct queries across schemas)
+    const { data: tagsJson, error } = await supabaseClient
+      .rpc('get_commitfest_tags_with_colors_for_subject', {
         p_subject_normalized: normalizedSubject
       })
     
@@ -807,9 +954,15 @@ async function getCommitfestTagsForSubject(subject: string, supabaseClient: any)
       return []
     }
     
-    // Return tags array, filtering out empty strings
-    if (tags && Array.isArray(tags)) {
-      return tags.filter((tag: string) => tag && tag.trim().length > 0).sort()
+    // Parse JSONB response and return as array of tag objects
+    if (tagsJson && Array.isArray(tagsJson)) {
+      return tagsJson
+        .filter((tag: any) => tag && tag.name && tag.name.trim().length > 0)
+        .sort((a: CommitfestTag, b: CommitfestTag) => a.name.localeCompare(b.name))
+        .map((tag: any) => ({
+          name: tag.name,
+          color: tag.color || null
+        }))
     }
     
     return []
