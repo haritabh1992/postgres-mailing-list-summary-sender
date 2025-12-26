@@ -56,7 +56,6 @@ In your Vercel dashboard:
 ```
 VITE_SUPABASE_URL=your-supabase-url
 VITE_SUPABASE_ANON_KEY=your-supabase-anon-key
-VITE_CRON_WEBHOOK_SECRET=your-cron-webhook-secret
 ```
 
 ## Step 3: Set Up Custom Domain
@@ -99,7 +98,7 @@ Value: cname.vercel-dns.com
 
 ### Update Supabase Functions:
 
-Update your cron webhook URLs in Supabase functions to use the new domain.
+Ensure all Edge Functions are properly deployed and configured.
 
 ## Step 5: Test Deployment
 
